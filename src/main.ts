@@ -302,6 +302,14 @@ async function activate() {
   // Show the plugin iframe and focus the search input
   logseq.showMainUI({ autoFocus: true });
 
+  // Force pointer-events on the iframe (LogSeq disables them for transparent plugins)
+  try {
+    const iframe = parent.document.getElementById("logseq-constel_iframe") as HTMLIFrameElement | null;
+    if (iframe) {
+      iframe.style.pointerEvents = "auto";
+    }
+  } catch (_) { /* cross-origin guard */ }
+
   // Push LogSeq main content to the right
   pushLogseqContent(50);
 
