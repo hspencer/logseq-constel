@@ -80,14 +80,15 @@ function main() {
   styleEl.textContent = CSS;
   document.head.appendChild(styleEl);
 
-  // Plugin iframe covers only the left side (full height, behind native menus)
+  // Plugin iframe covers only the left side
+  // z-index 9: above content but below LogSeq dropdowns/menus (z ≥ 999)
   logseq.setMainUIInlineStyle({
     position: "fixed",
     top: "0",
     left: "0",
     width: "50vw",
     height: "100vh",
-    zIndex: "1",
+    zIndex: "9",
     background: "transparent",
   });
 
