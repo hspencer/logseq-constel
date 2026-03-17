@@ -80,7 +80,7 @@ function main() {
   styleEl.textContent = CSS;
   document.head.appendChild(styleEl);
 
-  // Keep the iframe transparent; position/size set dynamically in activate/deactivate
+  // Transparent background; position/size managed in activate()/deactivate()
   logseq.setMainUIInlineStyle({
     background: "transparent",
   });
@@ -124,6 +124,53 @@ function main() {
   });
 
   console.log("[constel] ready");
+}
+
+/** Read a CSS variable from LogSeq's parent document */
+function lsVar(name: string): string {
+  try {
+    return getComputedStyle(parent.document.documentElement)
+      .getPropertyValue(name)
+      .trim();
+  } catch (_) {
+    return "";
+  }
+}
+
+/** Apply LogSeq theme colors to our CSS custom properties */
+function applyThemeColors() {
+  const root = document.getElementById("constel-root");
+  if (!root) return;
+
+  const map: Record<string, string> = {
+    "--bg": lsVar("--ls-primary-background-color"),
+    "--bg-surface": lsVar("--ls-secondary-background-color"),
+    "--bg-surface-alt": lsVar("--ls-tertiary-background-color"),
+    "--bg-hover": lsVar("--ls-quaternary-background-color") || lsVar("--ls-tertiary-background-color"),
+    "--text": lsVar("--ls-primary-text-color"),
+    "--text-secondary": lsVar("--ls-secondary-text-color"),
+    "--text-muted": lsVar("--ls-icon-color") || lsVar("--ls-secondary-text-color"),
+    "--border": lsVar("--ls-border-color"),
+    "--input-border": lsVar("--ls-border-color"),
+    "--input-bg": lsVar("--ls-secondary-background-color"),
+    "--accent": lsVar("--ls-active-primary-color") || lsVar("--ls-link-text-color"),
+    "--link-stroke": lsVar("--ls-border-color"),
+    "--node-fill": lsVar("--ls-secondary-text-color"),
+    "--node-central": lsVar("--ls-active-primary-color") || lsVar("--ls-link-text-color"),
+  };
+
+  for (const [prop, val] of Object.entries(map)) {
+    if (val) root.style.setProperty(prop, val);
+  }
+
+  // Derived translucent values from accent
+  const accent = map["--accent"];
+  if (accent) {
+    root.style.setProperty("--accent-soft", accent.startsWith("#")
+      ? accent + "14" : accent.replace(")", ", 0.08)").replace("rgb(", "rgba("));
+    root.style.setProperty("--accent-glow", accent.startsWith("#")
+      ? accent + "33" : accent.replace(")", ", 0.2)").replace("rgb(", "rgba("));
+  }
 }
 
 function detectFontFamily(): string {
@@ -195,7 +242,11 @@ async function activate() {
       if (state.dark !== wasDark || state.fontFamily !== oldFont) {
         console.log("[constel] theme changed, dark:", state.dark);
         const root = document.getElementById("constel-root");
-        if (root) root.className = state.dark ? "dark" : "";
+        if (root) {
+          root.className = state.dark ? "dark" : "";
+          root.style.fontFamily = state.fontFamily;
+        }
+        applyThemeColors();
         refreshGraph();
       }
     });
@@ -285,6 +336,11 @@ async function activate() {
     </div>
   `;
 
+  // Apply LogSeq theme colors and font
+  applyThemeColors();
+  const root = document.getElementById("constel-root")!;
+  root.style.fontFamily = state.fontFamily;
+
   // Wire up events
   document.getElementById("constel-close")!.addEventListener("click", deactivate);
   initSearch();
@@ -295,17 +351,23 @@ async function activate() {
   // Show the plugin iframe and focus the search input
   logseq.showMainUI({ autoFocus: true });
 
-  // Position and size the iframe for split-view
-  // z-index 9: above content but below LogSeq dropdowns/menus (z ≥ 999)
+  // Position iframe and its wrapper for split-view
+  // LogSeq wraps plugin iframes in a full-screen container div that blocks clicks
   try {
     const iframe = parent.document.getElementById("logseq-constel_iframe") as HTMLIFrameElement | null;
     if (iframe) {
-      iframe.style.position = "fixed";
-      iframe.style.top = "0";
-      iframe.style.left = "0";
-      iframe.style.width = "50vw";
-      iframe.style.height = "100vh";
-      iframe.style.zIndex = "9";
+      // Style the wrapper div: only cover the left half, let toolbar clicks through
+      const wrapper = iframe.parentElement;
+      if (wrapper) {
+        wrapper.style.width = "50vw";
+        wrapper.style.height = "100vh";
+        wrapper.style.left = "0";
+        wrapper.style.right = "auto";
+        wrapper.style.zIndex = "9";
+      }
+      // Iframe fills its wrapper
+      iframe.style.width = "100%";
+      iframe.style.height = "100%";
       iframe.style.pointerEvents = "auto";
     }
   } catch (_) { /* cross-origin guard */ }
@@ -339,16 +401,20 @@ function deactivate() {
   }
   restoreLogseqContent();
 
-  // Restore all iframe styles modified during activation / resize
+  // Reset iframe and wrapper styles we touched during activate/resize
   try {
     const iframe = parent.document.getElementById("logseq-constel_iframe") as HTMLIFrameElement | null;
     if (iframe) {
-      iframe.style.position = "";
-      iframe.style.top = "";
-      iframe.style.left = "";
+      const wrapper = iframe.parentElement;
+      if (wrapper) {
+        wrapper.style.width = "";
+        wrapper.style.height = "";
+        wrapper.style.left = "";
+        wrapper.style.right = "";
+        wrapper.style.zIndex = "";
+      }
       iframe.style.width = "";
       iframe.style.height = "";
-      iframe.style.zIndex = "";
       iframe.style.pointerEvents = "";
     }
   } catch (_) { /* cross-origin guard */ }
@@ -631,7 +697,8 @@ function initResize() {
       `logseq-constel_iframe`
     ) as HTMLIFrameElement | null;
     if (iframe) {
-      iframe.style.width = `${lastPct}vw`;
+      const wrapper = iframe.parentElement;
+      if (wrapper) wrapper.style.width = `${lastPct}vw`;
     }
     pushLogseqContent(lastPct);
   };
