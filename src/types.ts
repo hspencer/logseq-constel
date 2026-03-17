@@ -8,6 +8,8 @@ export interface GraphNode extends SimulationNodeDatum {
   degree: number;
   /** Page properties from LogSeq */
   properties?: Record<string, any>;
+  /** Number of blocks in the page (content size) */
+  blockCount?: number;
   /** Whether this node matches the current query filter */
   matched?: boolean;
 }

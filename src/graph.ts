@@ -1,13 +1,15 @@
 import type { GraphData, GraphNode, GraphLink } from "./types";
 
 /**
- * Build a local graph centered on `pageName`:
- * - The page itself (central node)
- * - All pages that link TO it (backlinks)
- * - All pages it links TO (forward links)
- * - Connections among those neighbor pages (2nd-degree edges)
+ * Build a local graph centered on `pageName` up to `maxDepth` degrees.
+ * depth=1: only direct connections
+ * depth=2: connections of connections
+ * depth=3+: further expansion
  */
-export async function buildGraph(pageName: string): Promise<GraphData | null> {
+export async function buildGraph(
+  pageName: string,
+  maxDepth = 2
+): Promise<GraphData | null> {
   const page = await logseq.Editor.getPage(pageName);
   if (!page) return null;
 
@@ -15,63 +17,108 @@ export async function buildGraph(pageName: string): Promise<GraphData | null> {
   const linkSet = new Set<string>();
   const links: GraphLink[] = [];
 
-  function addNode(name: string, central = false): GraphNode {
+  function addNode(name: string, central = false, properties?: Record<string, any>, blockCount?: number): GraphNode {
     const key = name.toLowerCase();
     if (!nodeMap.has(key)) {
-      nodeMap.set(key, { id: name, name, central, degree: 0 });
+      nodeMap.set(key, { id: name, name, central, degree: 0, properties, blockCount });
     }
     const node = nodeMap.get(key)!;
     if (central) node.central = true;
+    if (properties && !node.properties) node.properties = properties;
+    if (blockCount !== undefined && node.blockCount === undefined) node.blockCount = blockCount;
     return node;
   }
 
   function addLink(a: string, b: string) {
-    const key = [a.toLowerCase(), b.toLowerCase()].sort().join("||");
-    if (linkSet.has(key)) return;
-    if (a.toLowerCase() === b.toLowerCase()) return;
-    linkSet.add(key);
-    links.push({ source: a, target: b });
+    const aKey = a.toLowerCase();
+    const bKey = b.toLowerCase();
+    const linkKey = [aKey, bKey].sort().join("||");
+    if (linkSet.has(linkKey)) return;
+    if (aKey === bKey) return;
+    linkSet.add(linkKey);
+    // Use the canonical node id (from addNode), not the raw name
+    const aId = nodeMap.get(aKey)?.id ?? a;
+    const bId = nodeMap.get(bKey)?.id ?? b;
+    links.push({ source: aId, target: bId });
   }
 
-  // Central node
-  addNode(pageName, true);
+  // Central node (with properties and block count)
+  const centralBlocks = await logseq.Editor.getPageBlocksTree(pageName);
+  const centralBlockCount = centralBlocks ? flattenBlocks(centralBlocks).length : 0;
+  addNode(pageName, true, page.properties as Record<string, any> | undefined, centralBlockCount);
 
-  // Linked references (backlinks)
-  const backlinks = await logseq.Editor.getPageLinkedReferences(pageName);
-  if (backlinks) {
-    for (const [refPage] of backlinks) {
-      if (refPage?.name) {
-        addNode(refPage.name);
-        addLink(pageName, refPage.name);
+  // BFS expansion by depth
+  let frontier = new Set<string>([pageName.toLowerCase()]);
+  const visited = new Set<string>([pageName.toLowerCase()]);
+
+  for (let depth = 0; depth < maxDepth; depth++) {
+    const nextFrontier = new Set<string>();
+
+    for (const nodeKey of frontier) {
+      const node = nodeMap.get(nodeKey);
+      if (!node) continue;
+      const name = node.name;
+
+      // Backlinks
+      const backlinks = await logseq.Editor.getPageLinkedReferences(name);
+      if (backlinks) {
+        for (const [refPage] of backlinks) {
+          if (refPage?.name) {
+            addNode(refPage.name, false, refPage.properties as Record<string, any> | undefined);
+            addLink(name, refPage.name);
+            const refKey = refPage.name.toLowerCase();
+            if (!visited.has(refKey)) {
+              visited.add(refKey);
+              nextFrontier.add(refKey);
+            }
+          }
+        }
       }
-    }
-  }
 
-  // Forward links: scan the page's block tree for [[...]] references
-  const blocks = await logseq.Editor.getPageBlocksTree(pageName);
-  if (blocks) {
-    const refPattern = /\[\[([^\]]+)\]\]/g;
-    for (const block of flattenBlocks(blocks)) {
-      let match: RegExpExecArray | null;
-      while ((match = refPattern.exec(block.content)) !== null) {
-        const refName = match[1];
-        addNode(refName);
-        addLink(pageName, refName);
-      }
-    }
-  }
-
-  // 2nd-degree: check connections among neighbor pages
-  const neighbors = [...nodeMap.values()].filter((n) => !n.central);
-  for (const neighbor of neighbors) {
-    const nBacklinks = await logseq.Editor.getPageLinkedReferences(neighbor.name);
-    if (nBacklinks) {
-      for (const [refPage] of nBacklinks) {
-        if (refPage?.name && nodeMap.has(refPage.name.toLowerCase())) {
-          addLink(neighbor.name, refPage.name);
+      // Forward links from block content (also count blocks for size)
+      const blocks = await logseq.Editor.getPageBlocksTree(name);
+      if (blocks) {
+        const allBlocks = flattenBlocks(blocks);
+        const currentNode = nodeMap.get(nodeKey);
+        if (currentNode && currentNode.blockCount === undefined) {
+          currentNode.blockCount = allBlocks.length;
+        }
+        const refPattern = /\[\[([^\]]+)\]\]/g;
+        // Collect unique refs first, then batch-check existence
+        const refs = new Set<string>();
+        for (const block of flattenBlocks(blocks)) {
+          let match: RegExpExecArray | null;
+          while ((match = refPattern.exec(block.content)) !== null) {
+            refs.add(match[1]);
+          }
+        }
+        // Check each ref page exists before adding
+        for (const refName of refs) {
+          const refKey = refName.toLowerCase();
+          // Skip if already in graph (already verified)
+          if (nodeMap.has(refKey)) {
+            addLink(name, refName);
+            if (!visited.has(refKey)) {
+              visited.add(refKey);
+              nextFrontier.add(refKey);
+            }
+            continue;
+          }
+          // Verify page exists
+          const refPage = await logseq.Editor.getPage(refName);
+          if (!refPage) continue; // skip non-existent pages
+          addNode(refPage.name, false, refPage.properties as Record<string, any> | undefined);
+          addLink(name, refPage.name);
+          if (!visited.has(refKey)) {
+            visited.add(refKey);
+            nextFrontier.add(refKey);
+          }
         }
       }
     }
+
+    frontier = nextFrontier;
+    if (frontier.size === 0) break;
   }
 
   // Calculate degrees

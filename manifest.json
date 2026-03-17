@@ -1,0 +1,10 @@
+{
+  "id": "logseq-constel",
+  "title": "Con§tel",
+  "description": "Split view: interactive graph visualization alongside the native editor. Navigate your knowledge graph with search, property filters, and navigation history.",
+  "author": "hspencer",
+  "repo": "hspencer/logseq-constel",
+  "icon": "./icon.svg",
+  "theme": false,
+  "effect": false
+}
