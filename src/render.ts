@@ -84,7 +84,8 @@ export function renderGraph(
     .selectAll("line")
     .data(data.links)
     .join("line")
-    .attr("stroke-width", 1);
+    .attr("stroke-width", 1)
+    .style("transition", "stroke-opacity 0.2s, stroke 0.2s");
 
   // Nodes
   const node = g
@@ -92,7 +93,8 @@ export function renderGraph(
     .selectAll<SVGGElement, GraphNode>("g")
     .data(data.nodes)
     .join("g")
-    .attr("cursor", "pointer");
+    .attr("cursor", "pointer")
+    .style("transition", "opacity 0.2s");
 
   // ── Dimensions map (used for title-mode collision and both modes for history rings) ──
   const dims = new Map<string, { w: number; h: number }>();

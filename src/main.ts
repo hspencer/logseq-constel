@@ -80,15 +80,8 @@ function main() {
   styleEl.textContent = CSS;
   document.head.appendChild(styleEl);
 
-  // Plugin iframe covers only the left side
-  // z-index 9: above content but below LogSeq dropdowns/menus (z ≥ 999)
+  // Keep the iframe transparent; position/size set dynamically in activate/deactivate
   logseq.setMainUIInlineStyle({
-    position: "fixed",
-    top: "0",
-    left: "0",
-    width: "50vw",
-    height: "100vh",
-    zIndex: "9",
     background: "transparent",
   });
 
@@ -302,10 +295,17 @@ async function activate() {
   // Show the plugin iframe and focus the search input
   logseq.showMainUI({ autoFocus: true });
 
-  // Force pointer-events on the iframe (LogSeq disables them for transparent plugins)
+  // Position and size the iframe for split-view
+  // z-index 9: above content but below LogSeq dropdowns/menus (z ≥ 999)
   try {
     const iframe = parent.document.getElementById("logseq-constel_iframe") as HTMLIFrameElement | null;
     if (iframe) {
+      iframe.style.position = "fixed";
+      iframe.style.top = "0";
+      iframe.style.left = "0";
+      iframe.style.width = "50vw";
+      iframe.style.height = "100vh";
+      iframe.style.zIndex = "9";
       iframe.style.pointerEvents = "auto";
     }
   } catch (_) { /* cross-origin guard */ }
@@ -338,6 +338,21 @@ function deactivate() {
     state.themeObserver = null;
   }
   restoreLogseqContent();
+
+  // Restore all iframe styles modified during activation / resize
+  try {
+    const iframe = parent.document.getElementById("logseq-constel_iframe") as HTMLIFrameElement | null;
+    if (iframe) {
+      iframe.style.position = "";
+      iframe.style.top = "";
+      iframe.style.left = "";
+      iframe.style.width = "";
+      iframe.style.height = "";
+      iframe.style.zIndex = "";
+      iframe.style.pointerEvents = "";
+    }
+  } catch (_) { /* cross-origin guard */ }
+
   logseq.hideMainUI();
   const app = document.getElementById("app");
   if (app) app.innerHTML = "";

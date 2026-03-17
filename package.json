@@ -1,6 +1,6 @@
 {
   "name": "logseq-constel",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Split view: graph visualization alongside the selected page and its connections",
   "license": "MIT",
   "repository": {
@@ -9,7 +9,7 @@
   },
   "main": "dist/index.html",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite build --watch",
     "build": "vite build"
   },
   "logseq": {
