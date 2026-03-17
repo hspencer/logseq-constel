@@ -1,42 +1,28 @@
 # Con§tel
 
-**Interactive constellation graph for LogSeq** — a split-view layout with a force-directed graph on the left and LogSeq's native editor on the right.
+A split-view plugin for [LogSeq](https://logseq.com) that displays an interactive force-directed graph alongside the native editor. Navigate your knowledge graph visually — click a node and the page opens beside it.
 
-![Con§tel screenshot](./src/constel.png)
+![Con§tel in action](./screenshot.png)
 
 ## Features
 
-- **Split view**: interactive D3 graph (left) + native LogSeq editor (right), resizable via drag handle
-- **Graph navigation**: click any node to navigate — the graph recenters and LogSeq opens the page
-- **Page search**: autocomplete search bar to jump to any page in your graph
-- **Navigation history**: pill-based breadcrumbs tracking your visited pages, with orange ring indicators on graph nodes
-- **Property filters**: toggle switches for page properties that filter the visible graph
-- **Dark mode**: automatically detects LogSeq's theme
-- **Local graph**: shows the current page, its backlinks, forward links, and 2nd-degree connections
-- **Hover highlight**: dims unconnected nodes to reveal direct relationships
-- **Drag & zoom**: draggable nodes, scroll to zoom
+- **Split view** — resizable D3 graph (left) + LogSeq editor (right); drag the divider to adjust
+- **Graph navigation** — click any node to open its page; the graph re-centers around it
+- **Two node styles** — classic circle nodes or collision-aware title labels sized by page length
+- **Page search** — autocomplete search bar to jump to any page instantly
+- **Navigation history** — breadcrumb pills tracking visited pages, with orange highlights on graph nodes
+- **Property filters** — toggle switches for page properties (status, tags, type…) to filter the visible graph
+- **Theme integration** — automatically detects dark/light mode, reads your theme's font family and colors, and switches live when you change themes
+- **Hover highlight** — dims unconnected nodes to reveal direct relationships
+- **Drag & zoom** — pan, scroll-zoom, and drag individual nodes
 
-## Keyboard shortcut
+## Getting started
 
-- **Cmd+Ctrl+C** (Mac) / **Ctrl+Ctrl+C**: toggle Con§tel view
-- **Esc**: close the view
-- Toolbar button: the **§** icon in LogSeq's toolbar
+### From the marketplace
 
-## Settings
+Search for **Con§tel** in LogSeq → Plugins → Marketplace.
 
-| Setting | Default | Description |
-|---|---|---|
-| Graph depth | 2 | Degrees of separation (1 = direct only) |
-| Repulsion force | -200 | More negative = more spread out |
-| Link distance | 80px | Ideal distance between connected nodes |
-
-## Installation
-
-### From marketplace
-
-Search for **Con§tel** in LogSeq's plugin marketplace.
-
-### Manual (development)
+### Manual install
 
 ```bash
 git clone https://github.com/hspencer/logseq-constel.git
@@ -45,17 +31,37 @@ npm install
 npm run build
 ```
 
-In LogSeq:
-1. `Settings` > `Advanced` > enable `Developer mode`
-2. `Plugins` > `Load unpacked plugin`
-3. Select the `logseq-constel` folder
+In LogSeq: **Settings → Advanced → Developer mode**, then **Plugins → Load unpacked plugin** and select the `logseq-constel` folder.
+
+## Usage
+
+| Action | How |
+|---|---|
+| Toggle the view | Click the **§** toolbar button, or press **Ctrl+Cmd+C** (Mac) / **Ctrl+Alt+C** |
+| Close | Press **Esc** or click the **×** button |
+| Navigate | Click any node in the graph |
+| Search | Type in the search bar (top-left) |
+| Resize | Drag the vertical divider between graph and editor |
+| Zoom | Scroll wheel over the graph |
+| Pan | Click and drag on the graph background |
+
+## Settings
+
+Open LogSeq → Plugins → Con§tel → Settings:
+
+| Setting | Default | Options | Description |
+|---|---|---|---|
+| **Graph depth** | `2` | 1–5 | Degrees of separation from the current page. `1` = direct connections only, `2` = friends-of-friends, etc. |
+| **Node style** | `circular` | `circular` · `title` | **Circular**: classic dot nodes with labels. **Title**: text-only labels that physically collide — font size reflects page length. |
+| **Repulsion force** | `-200` | any negative number | How strongly nodes push each other apart. More negative = more spread out. |
+| **Link distance** | `80` | pixels | Ideal distance between connected nodes. Increase for a more spacious layout. |
 
 ## Stack
 
-- TypeScript + Vite
-- D3.js v7 (force-directed graph)
-- LogSeq Plugin API (`@logseq/libs`)
+- **TypeScript** + **Vite**
+- **D3.js v7** — force-directed simulation with custom rectangular collision
+- **LogSeq Plugin API** (`@logseq/libs`)
 
 ## License
 
-MIT
+[MIT](./LICENSE)
