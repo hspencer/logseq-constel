@@ -1,6 +1,6 @@
 {
   "name": "logseq-constel",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Split view: graph visualization alongside the selected page and its connections",
   "license": "MIT",
   "repository": {
@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@logseq/libs": "^0.0.17",
+    "3d-force-graph": "^1.79.1",
     "d3": "^7.9.0"
   }
 }

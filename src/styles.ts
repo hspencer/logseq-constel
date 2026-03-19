@@ -75,6 +75,7 @@ export default `
     flex-direction: column;
     position: relative;
     min-width: 0;
+    padding-top: 48px; /* Clear Logseq's top toolbar */
   }
 
   /* Resize handle on the right edge */
@@ -95,7 +96,7 @@ export default `
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    padding: 8px 12px 8px 90px;
+    padding: 8px 12px;
     background: var(--bg-surface-alt);
     position: relative;
     z-index: 5;

@@ -1,6 +1,7 @@
 import "@logseq/libs";
 import { buildGraph } from "./graph";
 import { renderGraph } from "./render";
+import { renderGraph3D, cleanupGraph3D } from "./render3d";
 import { applyQuery } from "./query";
 import CSS from "./styles";
 import type { GraphData } from "./types";
@@ -63,10 +64,10 @@ function main() {
     {
       key: "nodeStyle",
       type: "enum",
-      default: "circular",
+      default: "title",
       title: "Node style",
-      description: "circular: classic dots with labels. title: text rectangles sized by page length.",
-      enumChoices: ["circular", "title"],
+      description: "title: text sized by page length. circular: dots with labels. 3d: 3D space with orbital camera.",
+      enumChoices: ["title", "circular", "3d"],
       enumPicker: "radio",
     },
   ]);
@@ -122,6 +123,54 @@ function main() {
       refreshGraph();
     }
   });
+
+  // Refresh graph when settings change (e.g. node style)
+  logseq.onSettingsChanged(() => {
+    if (state.active) refreshGraph();
+  });
+
+  // When right sidebar opens while Constel is active, deactivate Constel
+  logseq.App.onSidebarVisibleChanged(({ visible }) => {
+    if (visible && state.active) {
+      deactivate();
+    }
+  });
+
+  // Detect left sidebar opening via DOM observation on parent document.
+  // Logseq adds "ls-left-sidebar-open" on <html> or a wrapper element.
+  try {
+    const parentDoc = parent.document;
+    const targets = [
+      parentDoc.documentElement,
+      parentDoc.body,
+      parentDoc.querySelector("#root"),
+      parentDoc.querySelector("#app-container"),
+      parentDoc.querySelector(".cp__sidebar-main-layout"),
+    ].filter(Boolean) as Element[];
+
+    const sidebarObserver = new MutationObserver(() => {
+      if (!state.active) return;
+      // Check multiple selectors for left sidebar open state
+      const isOpen =
+        parentDoc.documentElement.classList.contains("ls-left-sidebar-open") ||
+        parentDoc.body.classList.contains("ls-left-sidebar-open") ||
+        !!parentDoc.querySelector(".ls-left-sidebar-open") ||
+        !!parentDoc.querySelector("#left-sidebar.is-open");
+      if (isOpen) {
+        deactivate();
+      }
+    });
+
+    for (const target of targets) {
+      sidebarObserver.observe(target, {
+        attributes: true,
+        attributeFilter: ["class"],
+        subtree: false,
+      });
+    }
+  } catch (e) {
+    console.warn("[constel] cannot observe parent DOM for sidebar:", e);
+  }
 
   // Close on Escape
   document.addEventListener("keydown", (e) => {
@@ -244,6 +293,7 @@ async function activate() {
 
 function deactivate() {
   console.log("[constel] deactivating");
+  cleanupGraph3D();
   state.active = false;
   state.currentPage = null;
   state.graphData = null;
@@ -386,14 +436,17 @@ function refreshGraph() {
 
   const container = document.getElementById("constel-graph");
   if (!container) return;
-  renderGraph(
-    container,
-    filtered,
-    async (clickedPage: string) => {
-      await navigateTo(clickedPage);
-    },
-    settings
-  );
+
+  const onClickNode = async (clickedPage: string) => {
+    await navigateTo(clickedPage);
+  };
+
+  if (nodeStyle === "3d") {
+    renderGraph3D(container, filtered, onClickNode, settings);
+  } else {
+    cleanupGraph3D();
+    renderGraph(container, filtered, onClickNode, settings);
+  }
 }
 
 function initResize() {
