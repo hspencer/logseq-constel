@@ -12,7 +12,6 @@ interface State {
   graphData: GraphData | null;
   history: string[];
   activeFilters: Map<string, string>; // property key:value toggles
-  allPageNames: string[]; // cached for search
   dark: boolean;
   splitPct: number;
 }
@@ -24,7 +23,6 @@ const state: State = {
   graphData: null,
   history: [],
   activeFilters: new Map(),
-  allPageNames: [],
   dark: false,
   splitPct: 50,
 };
@@ -207,26 +205,11 @@ async function activate() {
 
   console.log("[constel] page:", pageName);
 
-  // Cache all page names for search
-  const allPages = await logseq.Editor.getAllPages();
-  state.allPageNames = (allPages || [])
-    .map((p) => p.name)
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b));
-
   // Build the UI — graph panel only (right side shows native LogSeq)
   const app = document.getElementById("app")!;
   app.innerHTML = `
     <div id="constel-root" class="${state.dark ? "dark" : ""}">
       <div id="constel-panel">
-        <div id="constel-search-bar">
-          <div id="constel-search-wrap">
-            <input id="constel-search-input" type="text"
-              placeholder="Search pages..." autocomplete="off" />
-            <div id="constel-search-results"></div>
-          </div>
-          <button id="constel-close" title="Close (Esc)">&times;</button>
-        </div>
         <div id="constel-props"></div>
         <div id="constel-history"></div>
         <div id="constel-graph"></div>
@@ -234,10 +217,6 @@ async function activate() {
       <div id="constel-resize-handle"></div>
     </div>
   `;
-
-  // Wire up events
-  document.getElementById("constel-close")!.addEventListener("click", deactivate);
-  initSearch();
 
   // Resize handle drag
   initResize();
@@ -260,12 +239,6 @@ async function activate() {
   // Push LogSeq main content to the right
   provideLayoutStyle(state.splitPct);
 
-  // Ensure the input is focusable
-  setTimeout(() => {
-    const input = document.getElementById("constel-search-input") as HTMLInputElement;
-    if (input) input.focus();
-  }, 100);
-
   await navigateTo(pageName);
 }
 
@@ -277,7 +250,6 @@ function deactivate() {
   state.query = {};
   state.history = [];
   state.activeFilters.clear();
-  state.allPageNames = [];
   state.dark = false;
 
   // Reset container styles — layout CSS auto-deactivates via :has(.visible)
@@ -295,103 +267,6 @@ function deactivate() {
   logseq.hideMainUI();
   const app = document.getElementById("app");
   if (app) app.innerHTML = "";
-}
-
-function initSearch() {
-  const input = document.getElementById("constel-search-input") as HTMLInputElement;
-  const results = document.getElementById("constel-search-results")!;
-  let selectedIdx = -1;
-
-  input.addEventListener("input", () => {
-    const q = input.value.trim().toLowerCase();
-    results.innerHTML = "";
-    selectedIdx = -1;
-
-    if (q.length < 1) {
-      results.style.display = "none";
-      return;
-    }
-
-    // Match pages: starts-with first, then includes
-    const startsWith: string[] = [];
-    const includes: string[] = [];
-    for (const name of state.allPageNames) {
-      const lower = name.toLowerCase();
-      if (lower.startsWith(q)) startsWith.push(name);
-      else if (lower.includes(q)) includes.push(name);
-    }
-    const matches = [...startsWith, ...includes].slice(0, 12);
-
-    if (matches.length === 0) {
-      results.style.display = "none";
-      return;
-    }
-
-    results.style.display = "block";
-    for (let i = 0; i < matches.length; i++) {
-      const item = document.createElement("div");
-      item.className = "constel-search-item";
-      item.textContent = matches[i];
-      item.addEventListener("mousedown", (e) => {
-        e.preventDefault(); // keep focus on input
-        selectPage(matches[i], input, results);
-      });
-      results.appendChild(item);
-    }
-  });
-
-  input.addEventListener("keydown", (e) => {
-    const items = results.querySelectorAll(".constel-search-item");
-    if (items.length === 0) return;
-
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      selectedIdx = Math.min(selectedIdx + 1, items.length - 1);
-      updateSelection(items, selectedIdx);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      selectedIdx = Math.max(selectedIdx - 1, 0);
-      updateSelection(items, selectedIdx);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      if (selectedIdx >= 0 && selectedIdx < items.length) {
-        selectPage(items[selectedIdx].textContent!, input, results);
-      } else if (items.length > 0) {
-        selectPage(items[0].textContent!, input, results);
-      }
-    }
-  });
-
-  input.addEventListener("blur", () => {
-    // Delay to allow mousedown on results
-    setTimeout(() => {
-      results.style.display = "none";
-    }, 150);
-  });
-
-  input.addEventListener("focus", () => {
-    if (input.value.trim().length > 0) {
-      input.dispatchEvent(new Event("input"));
-    }
-  });
-}
-
-function updateSelection(items: NodeListOf<Element>, idx: number) {
-  items.forEach((el, i) => {
-    el.classList.toggle("selected", i === idx);
-  });
-  items[idx]?.scrollIntoView({ block: "nearest" });
-}
-
-function selectPage(
-  pageName: string,
-  input: HTMLInputElement,
-  results: HTMLElement
-) {
-  input.value = "";
-  results.style.display = "none";
-  results.innerHTML = "";
-  navigateTo(pageName);
 }
 
 async function navigateTo(pageName: string) {

@@ -39,7 +39,7 @@ export default `
     position: absolute;
     inset: 0;
     display: flex;
-    background: var(--bg);
+    background: transparent;
     font-family: system-ui, -apple-system, sans-serif;
     color: var(--text);
   }
@@ -90,98 +90,12 @@ export default `
     background: var(--accent);
   }
 
-  /* Search bar — left padding reserves space for LogSeq's native toolbar icons */
-  #constel-search-bar {
-    display: flex;
-    padding: 8px 12px 8px 90px;
-    gap: 6px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-surface);
-    align-items: center;
-    position: relative;
-    z-index: 10;
-  }
-
-  #constel-search-wrap {
-    flex: 1;
-    position: relative;
-    display: flex;
-    min-width: 0;
-  }
-
-  #constel-search-input {
-    flex: 1;
-    min-width: 0;
-    padding: 6px 10px;
-    border: 1px solid var(--input-border);
-    border-radius: 6px;
-    background: var(--input-bg);
-    color: var(--text);
-    font-size: 13px;
-    outline: none;
-    box-sizing: border-box;
-  }
-
-  #constel-search-input:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px var(--accent-glow);
-  }
-
-  #constel-search-input::placeholder {
-    color: var(--text-placeholder);
-  }
-
-  #constel-search-results {
-    display: none;
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    max-height: 280px;
-    overflow-y: auto;
-    background: var(--input-bg);
-    border: 1px solid var(--input-border);
-    border-top: none;
-    border-radius: 0 0 6px 6px;
-    box-shadow: 0 4px 12px var(--shadow);
-    z-index: 100;
-  }
-
-  .constel-search-item {
-    padding: 6px 10px;
-    font-size: 13px;
-    cursor: pointer;
-    color: var(--text);
-  }
-
-  .constel-search-item:hover,
-  .constel-search-item.selected {
-    background: var(--accent-soft);
-    color: var(--accent);
-  }
-
-  #constel-search-bar button {
-    background: none;
-    border: 1px solid var(--input-border);
-    border-radius: 6px;
-    padding: 4px 10px;
-    cursor: pointer;
-    color: var(--close-color);
-    font-size: 20px;
-  }
-
-  #constel-search-bar button:hover {
-    background: var(--bg-hover);
-    color: var(--text);
-  }
-
-  /* Property switches */
+  /* Property switches — top bar, left padding avoids LogSeq system buttons */
   #constel-props {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    padding: 6px 12px;
-    border-bottom: 1px solid var(--border);
+    padding: 8px 12px 8px 90px;
     background: var(--bg-surface-alt);
     position: relative;
     z-index: 5;
