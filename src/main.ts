@@ -354,7 +354,7 @@ async function activate() {
   // Position iframe and its wrapper for split-view
   // LogSeq wraps plugin iframes in a full-screen container div that blocks clicks
   try {
-    const iframe = parent.document.getElementById("logseq-constel_iframe") as HTMLIFrameElement | null;
+    const iframe = window.frameElement as HTMLIFrameElement | null;
     if (iframe) {
       // Style the wrapper div: only cover the left half, let toolbar clicks through
       const wrapper = iframe.parentElement;
@@ -403,7 +403,7 @@ function deactivate() {
 
   // Reset iframe and wrapper styles we touched during activate/resize
   try {
-    const iframe = parent.document.getElementById("logseq-constel_iframe") as HTMLIFrameElement | null;
+    const iframe = window.frameElement as HTMLIFrameElement | null;
     if (iframe) {
       const wrapper = iframe.parentElement;
       if (wrapper) {
@@ -693,9 +693,7 @@ function initResize() {
 
   const applyResize = () => {
     rafId = null;
-    const iframe = parent.document.getElementById(
-      `logseq-constel_iframe`
-    ) as HTMLIFrameElement | null;
+    const iframe = window.frameElement as HTMLIFrameElement | null;
     if (iframe) {
       const wrapper = iframe.parentElement;
       if (wrapper) wrapper.style.width = `${lastPct}vw`;

@@ -56,16 +56,20 @@ export function renderGraph(
       .on("zoom", (event) => g.attr("transform", event.transform)) as any
   );
 
-  // Theme colors
+  // Theme colors — read CSS variables from #constel-root, fall back to defaults
   const dark = settings.dark ?? false;
+  const rootEl = document.getElementById("constel-root");
+  const cs = rootEl ? getComputedStyle(rootEl) : null;
+  const cssVar = (name: string, fallback: string) =>
+    cs?.getPropertyValue(name).trim() || fallback;
   const colors = {
-    nodeCentral: dark ? "#4a9ade" : "#045591",
-    nodeFill: dark ? "#777" : "#999",
-    nodeBorder: dark ? "#555" : "#ddd",
-    textCentral: dark ? "#d4d4d4" : "#333",
-    textNormal: dark ? "#d4d4d4" : "#333",
-    linkStroke: dark ? "#555" : "#ccc",
-    hoverAccent: dark ? "#4a9ade" : "#045591",
+    nodeCentral: cssVar("--node-central", dark ? "#4a9ade" : "#045591"),
+    nodeFill: cssVar("--node-fill", dark ? "#777" : "#999"),
+    nodeBorder: cssVar("--border", dark ? "#555" : "#ddd"),
+    textCentral: cssVar("--text", dark ? "#d4d4d4" : "#333"),
+    textNormal: cssVar("--text", dark ? "#d4d4d4" : "#333"),
+    linkStroke: cssVar("--link-stroke", dark ? "#555" : "#ccc"),
+    hoverAccent: cssVar("--accent", dark ? "#4a9ade" : "#045591"),
   };
 
   // History lookup
