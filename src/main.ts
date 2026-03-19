@@ -298,7 +298,10 @@ function renderHistory() {
   for (const name of state.history) {
     const pill = document.createElement("button");
     pill.className = "constel-pill";
-    if (name === state.currentPage) pill.classList.add("active");
+    if (name === state.currentPage) {
+      pill.classList.add("active");
+      pill.setAttribute("aria-current", "page");
+    }
     pill.textContent = name;
     pill.addEventListener("click", () => navigateTo(name));
     container.appendChild(pill);
@@ -325,6 +328,9 @@ function renderProps() {
 
     const sw = document.createElement("label");
     sw.className = "constel-switch" + (isActive ? " active" : "");
+    sw.setAttribute("role", "switch");
+    sw.setAttribute("aria-checked", String(isActive));
+    sw.setAttribute("tabindex", "0");
     sw.innerHTML = `
       <span class="constel-switch-key">${escapeHtml(key)}</span>
       <span class="constel-switch-val">${escapeHtml(valStr)}</span>
@@ -332,7 +338,7 @@ function renderProps() {
         <span class="constel-switch-knob"></span>
       </span>
     `;
-    sw.addEventListener("click", () => {
+    const toggleFilter = () => {
       if (state.activeFilters.has(filterKey)) {
         state.activeFilters.delete(filterKey);
       } else {
@@ -340,6 +346,13 @@ function renderProps() {
       }
       renderProps();
       refreshGraph();
+    };
+    sw.addEventListener("click", toggleFilter);
+    sw.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        toggleFilter();
+      }
     });
     container.appendChild(sw);
   }

@@ -214,4 +214,62 @@ export default `
     overflow: hidden;
     position: relative;
   }
+
+  /* Zoom controls */
+  .constel-zoom-controls {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 10;
+  }
+
+  .constel-zoom-controls button {
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--input-border, #ddd);
+    border-radius: 6px;
+    background: var(--bg-surface, #f8f8f8);
+    color: var(--text, #333);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, border-color 0.15s;
+    padding: 0;
+  }
+
+  .constel-zoom-controls button:hover {
+    border-color: var(--accent, #045591);
+    background: var(--bg-hover, #f0f0f0);
+  }
+
+  /* Focus ring for keyboard-navigable SVG nodes */
+  #constel-graph svg g g:focus {
+    outline: 2px solid var(--accent, #045591);
+    outline-offset: 2px;
+  }
+
+  /* History scroll indicators */
+  #constel-history {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0px, black 24px,
+      black calc(100% - 24px), transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent 0px, black 24px,
+      black calc(100% - 24px), transparent 100%
+    );
+    scrollbar-width: none;
+  }
+
+  #constel-history::-webkit-scrollbar {
+    display: none;
+  }
 `;

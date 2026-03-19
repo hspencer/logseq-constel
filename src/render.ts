@@ -47,14 +47,47 @@ export function renderGraph(
     .append("svg")
     .attr("width", width)
     .attr("height", height)
-    .attr("viewBox", [0, 0, width, height]);
+    .attr("viewBox", [0, 0, width, height])
+    .attr("role", "img")
+    .attr("aria-label", "Knowledge graph visualization");
 
   const g = svg.append("g");
-  svg.call(
-    d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.2, 5])
-      .on("zoom", (event) => g.attr("transform", event.transform)) as any
-  );
+  const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
+    .scaleExtent([0.2, 5])
+    .on("zoom", (event) => g.attr("transform", event.transform));
+  svg.call(zoomBehavior as any);
+
+  // Zoom controls
+  const controls = document.createElement("div");
+  controls.className = "constel-zoom-controls";
+  const btnPlus = document.createElement("button");
+  btnPlus.textContent = "+";
+  btnPlus.title = "Zoom in";
+  btnPlus.setAttribute("aria-label", "Zoom in");
+  const btnMinus = document.createElement("button");
+  btnMinus.textContent = "\u2212";
+  btnMinus.title = "Zoom out";
+  btnMinus.setAttribute("aria-label", "Zoom out");
+  const btnFit = document.createElement("button");
+  btnFit.textContent = "\u2300";
+  btnFit.title = "Fit to view";
+  btnFit.setAttribute("aria-label", "Fit to view");
+  controls.append(btnPlus, btnMinus, btnFit);
+  container.appendChild(controls);
+
+  const svgEl = svg.node()!;
+  btnPlus.addEventListener("click", () => {
+    svg.transition().duration(300).call(zoomBehavior.scaleBy as any, 1.5);
+  });
+  btnMinus.addEventListener("click", () => {
+    svg.transition().duration(300).call(zoomBehavior.scaleBy as any, 0.67);
+  });
+  btnFit.addEventListener("click", () => {
+    svg.transition().duration(300).call(
+      zoomBehavior.transform as any,
+      d3.zoomIdentity.translate(width / 2, height / 2).scale(0.8).translate(-width / 2, -height / 2)
+    );
+  });
 
   // Theme colors — read CSS variables from #constel-root, fall back to defaults
   const dark = settings.dark ?? false;
@@ -111,8 +144,21 @@ export function renderGraph(
     renderCircularNodes(node, data, dims, historyMap, colors);
   }
 
-  // Click
+  // Accessibility: make nodes focusable
+  node
+    .attr("tabindex", 0)
+    .attr("role", "link")
+    .attr("aria-label", (d) => d.name);
+
+  // Click and keyboard navigation
   node.on("click", (_event, d) => onClickPage(d.name));
+  node.on("keydown", (_event, d) => {
+    const e = _event as KeyboardEvent;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onClickPage(d.name);
+    }
+  });
 
   // Hover highlight
   node
