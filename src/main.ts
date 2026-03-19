@@ -14,8 +14,7 @@ interface State {
   activeFilters: Map<string, string>; // property key:value toggles
   allPageNames: string[]; // cached for search
   dark: boolean;
-  fontFamily: string;
-  themeObserver: MutationObserver | null;
+  splitPct: number;
 }
 
 const state: State = {
@@ -27,8 +26,7 @@ const state: State = {
   activeFilters: new Map(),
   allPageNames: [],
   dark: false,
-  fontFamily: "system-ui, -apple-system, sans-serif",
-  themeObserver: null,
+  splitPct: 50,
 };
 
 function createModel() {
@@ -99,7 +97,7 @@ function main() {
     {
       key: "constel-toggle-cmd",
       label: "Con§tel: Toggle graph view",
-      keybinding: { binding: "mod+ctrl+c" },
+      keybinding: { binding: "mod+shift+." },
     },
     () => {
       state.active ? deactivate() : activate();
@@ -116,6 +114,17 @@ function main() {
     await navigateTo(page);
   });
 
+  // Listen for theme changes via official API
+  logseq.App.onThemeModeChanged(({ mode }) => {
+    const wasDark = state.dark;
+    state.dark = mode === "dark";
+    if (state.dark !== wasDark && state.active) {
+      const root = document.getElementById("constel-root");
+      if (root) root.className = state.dark ? "dark" : "";
+      refreshGraph();
+    }
+  });
+
   // Close on Escape
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && state.active) {
@@ -126,149 +135,39 @@ function main() {
   console.log("[constel] ready");
 }
 
-/** Read a CSS variable from LogSeq's parent document */
-function lsVar(name: string): string {
-  try {
-    return getComputedStyle(parent.document.documentElement)
-      .getPropertyValue(name)
-      .trim();
-  } catch (_) {
-    return "";
-  }
-}
-
-/** Apply LogSeq theme colors to our CSS custom properties */
-function applyThemeColors() {
-  const root = document.getElementById("constel-root");
-  if (!root) return;
-
-  const map: Record<string, string> = {
-    "--bg": lsVar("--ls-primary-background-color"),
-    "--bg-surface": lsVar("--ls-secondary-background-color"),
-    "--bg-surface-alt": lsVar("--ls-tertiary-background-color"),
-    "--bg-hover": lsVar("--ls-quaternary-background-color") || lsVar("--ls-tertiary-background-color"),
-    "--text": lsVar("--ls-primary-text-color"),
-    "--text-secondary": lsVar("--ls-secondary-text-color"),
-    "--text-muted": lsVar("--ls-icon-color") || lsVar("--ls-secondary-text-color"),
-    "--border": lsVar("--ls-border-color"),
-    "--input-border": lsVar("--ls-border-color"),
-    "--input-bg": lsVar("--ls-secondary-background-color"),
-    "--accent": lsVar("--ls-active-primary-color") || lsVar("--ls-link-text-color"),
-    "--link-stroke": lsVar("--ls-border-color"),
-    "--node-fill": lsVar("--ls-secondary-text-color"),
-    "--node-central": lsVar("--ls-active-primary-color") || lsVar("--ls-link-text-color"),
-  };
-
-  for (const [prop, val] of Object.entries(map)) {
-    if (val) root.style.setProperty(prop, val);
-  }
-
-  // Derived translucent values from accent
-  const accent = map["--accent"];
-  if (accent) {
-    root.style.setProperty("--accent-soft", accent.startsWith("#")
-      ? accent + "14" : accent.replace(")", ", 0.08)").replace("rgb(", "rgba("));
-    root.style.setProperty("--accent-glow", accent.startsWith("#")
-      ? accent + "33" : accent.replace(")", ", 0.2)").replace("rgb(", "rgba("));
-  }
-}
-
-function detectFontFamily(): string {
-  const fallback = "system-ui, -apple-system, sans-serif";
-  try {
-    // LogSeq sets --ls-font-family or font-family on the root
-    const html = parent.document.documentElement;
-    const styles = getComputedStyle(html);
-    const lsFont = styles.getPropertyValue("--ls-font-family").trim();
-    if (lsFont) return lsFont;
-    const bodyFont = getComputedStyle(parent.document.body).fontFamily;
-    if (bodyFont) return bodyFont;
-  } catch (_) { /* cross-origin guard */ }
-  return fallback;
-}
-
-function detectDarkMode(): boolean {
-  try {
-    const html = parent.document.documentElement;
-    const body = parent.document.body;
-
-    // LogSeq uses html[data-theme] or class on html/body
-    if (html.getAttribute("data-theme") === "dark") return true;
-    if (html.getAttribute("data-theme") === "light") return false;
-    if (html.classList.contains("dark")) return true;
-    if (html.classList.contains("white") || html.classList.contains("light")) return false;
-    if (body.classList.contains("dark")) return true;
-    if (body.classList.contains("white") || body.classList.contains("light")) return false;
-
-    // Check LogSeq's CSS variable
-    const lsBg = getComputedStyle(html).getPropertyValue("--ls-primary-background-color").trim();
-    if (lsBg) {
-      const tmp = parent.document.createElement("div");
-      tmp.style.color = lsBg;
-      parent.document.body.appendChild(tmp);
-      const computed = getComputedStyle(tmp).color;
-      tmp.remove();
-      const m = computed.match(/\d+/g);
-      if (m) {
-        const [r, g, b] = m.map(Number);
-        return (r * 299 + g * 587 + b * 114) / 1000 < 128;
-      }
+/** Inject layout CSS into LogSeq's parent document via official API.
+ *  Uses :has() so styles auto-activate/deactivate with .visible class. */
+function provideLayoutStyle(pct: number) {
+  const sel = "#logseq-constel_lsp_main.visible";
+  logseq.provideStyle(`
+    body:has(${sel}) #main-content-container {
+      margin-left: ${pct}vw !important;
+      width: ${100 - pct}vw !important;
     }
-
-    // Fallback: check computed background luminance
-    const bg = getComputedStyle(body).backgroundColor;
-    const match = bg.match(/\d+/g);
-    if (match) {
-      const [r, g, b] = match.map(Number);
-      return (r * 299 + g * 587 + b * 114) / 1000 < 128;
+    body:has(${sel}) #main-content-container .cp__sidebar-main-content {
+      max-width: 100% !important;
+      padding-left: 24px !important;
+      padding-right: 24px !important;
     }
-  } catch (_) { /* cross-origin guard */ }
-  return false;
+    body:has(${sel}) #main-content-container #main-content-container,
+    body:has(${sel}) #main-content-container .page,
+    body:has(${sel}) #main-content-container .ls-page-title,
+    body:has(${sel}) #main-content-container .editor-inner {
+      max-width: 100% !important;
+    }
+  `);
 }
 
 async function activate() {
   state.active = true;
-  state.dark = detectDarkMode();
-  state.fontFamily = detectFontFamily();
-  console.log("[constel] activating, dark:", state.dark, "font:", state.fontFamily);
 
-  // Watch for theme changes (class/attribute mutations on <html>)
-  try {
-    state.themeObserver = new MutationObserver(() => {
-      const wasDark = state.dark;
-      const oldFont = state.fontFamily;
-      state.dark = detectDarkMode();
-      state.fontFamily = detectFontFamily();
-      if (state.dark !== wasDark || state.fontFamily !== oldFont) {
-        console.log("[constel] theme changed, dark:", state.dark);
-        const root = document.getElementById("constel-root");
-        if (root) {
-          root.className = state.dark ? "dark" : "";
-          root.style.fontFamily = state.fontFamily;
-        }
-        applyThemeColors();
-        refreshGraph();
-      }
-    });
-    state.themeObserver.observe(parent.document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class", "data-theme", "style"],
-    });
-    state.themeObserver.observe(parent.document.body, {
-      attributes: true,
-      attributeFilter: ["class", "style"],
-    });
-  } catch (_) { /* cross-origin guard */ }
+  // Detect theme via official API
+  const configs = await logseq.App.getUserConfigs();
+  state.dark = configs.preferredThemeMode === "dark";
+  console.log("[constel] activating, dark:", state.dark);
 
-  // Try to close LogSeq's left sidebar if open (via API, not force)
-  try {
-    const sidebar = parent.document.querySelector(".cp__sidebar-left-layout.is-open") as HTMLElement | null;
-    if (sidebar) {
-      // Click the overlay to close it naturally
-      const overlay = parent.document.querySelector(".cp__sidebar-left-layout-overlay") as HTMLElement | null;
-      if (overlay) overlay.click();
-    }
-  } catch (_) { /* cross-origin guard */ }
+  // Close left sidebar via official API
+  logseq.App.setLeftSidebarVisible(false);
 
   let pageName: string | null = null;
 
@@ -336,11 +235,6 @@ async function activate() {
     </div>
   `;
 
-  // Apply LogSeq theme colors and font
-  applyThemeColors();
-  const root = document.getElementById("constel-root")!;
-  root.style.fontFamily = state.fontFamily;
-
   // Wire up events
   document.getElementById("constel-close")!.addEventListener("click", deactivate);
   initSearch();
@@ -348,32 +242,23 @@ async function activate() {
   // Resize handle drag
   initResize();
 
-  // Show the plugin iframe and focus the search input
+  // Show the plugin iframe and position for split-view
   logseq.showMainUI({ autoFocus: true });
 
-  // Position iframe and its wrapper for split-view
-  // LogSeq wraps plugin iframes in a full-screen container div that blocks clicks
-  try {
-    const iframe = window.frameElement as HTMLIFrameElement | null;
-    if (iframe) {
-      // Style the wrapper div: only cover the left half, let toolbar clicks through
-      const wrapper = iframe.parentElement;
-      if (wrapper) {
-        wrapper.style.width = "50vw";
-        wrapper.style.height = "100vh";
-        wrapper.style.left = "0";
-        wrapper.style.right = "auto";
-        wrapper.style.zIndex = "9";
-      }
-      // Iframe fills its wrapper
-      iframe.style.width = "100%";
-      iframe.style.height = "100%";
-      iframe.style.pointerEvents = "auto";
-    }
-  } catch (_) { /* cross-origin guard */ }
+  state.splitPct = 50;
+  logseq.setMainUIInlineStyle({
+    position: "fixed",
+    top: "0",
+    left: "0",
+    right: "auto",
+    width: `${state.splitPct}vw`,
+    height: "100vh",
+    zIndex: "9",
+    pointerEvents: "auto",
+  });
 
   // Push LogSeq main content to the right
-  pushLogseqContent(50);
+  provideLayoutStyle(state.splitPct);
 
   // Ensure the input is focusable
   setTimeout(() => {
@@ -394,30 +279,18 @@ function deactivate() {
   state.activeFilters.clear();
   state.allPageNames = [];
   state.dark = false;
-  state.fontFamily = "system-ui, -apple-system, sans-serif";
-  if (state.themeObserver) {
-    state.themeObserver.disconnect();
-    state.themeObserver = null;
-  }
-  restoreLogseqContent();
 
-  // Reset iframe and wrapper styles we touched during activate/resize
-  try {
-    const iframe = window.frameElement as HTMLIFrameElement | null;
-    if (iframe) {
-      const wrapper = iframe.parentElement;
-      if (wrapper) {
-        wrapper.style.width = "";
-        wrapper.style.height = "";
-        wrapper.style.left = "";
-        wrapper.style.right = "";
-        wrapper.style.zIndex = "";
-      }
-      iframe.style.width = "";
-      iframe.style.height = "";
-      iframe.style.pointerEvents = "";
-    }
-  } catch (_) { /* cross-origin guard */ }
+  // Reset container styles — layout CSS auto-deactivates via :has(.visible)
+  logseq.setMainUIInlineStyle({
+    position: "",
+    top: "",
+    left: "",
+    right: "",
+    width: "",
+    height: "",
+    zIndex: "",
+    pointerEvents: "",
+  });
 
   logseq.hideMainUI();
   const app = document.getElementById("app");
@@ -620,7 +493,6 @@ function refreshGraph() {
     linkDistance: (logseq.settings?.linkDistance as number) ?? 80,
     history: state.history,
     dark: state.dark,
-    fontFamily: state.fontFamily,
     nodeStyle: nodeStyle as "circular" | "title",
   };
 
@@ -636,114 +508,64 @@ function refreshGraph() {
   );
 }
 
-const CONSTEL_STYLE_ID = "constel-logseq-layout";
-
-function pushLogseqContent(pct: number) {
-  try {
-    const doc = parent.document;
-    // Remove existing style if any
-    doc.getElementById(CONSTEL_STYLE_ID)?.remove();
-    const style = doc.createElement("style");
-    style.id = CONSTEL_STYLE_ID;
-    style.textContent = `
-      #main-content-container {
-        margin-left: ${pct}vw !important;
-        width: ${100 - pct}vw !important;
-      }
-      /* Remove LogSeq's wide-screen padding so text fills the available space */
-      #main-content-container .cp__sidebar-main-content {
-        max-width: 100% !important;
-        padding-left: 24px !important;
-        padding-right: 24px !important;
-      }
-      #main-content-container #main-content-container {
-        max-width: 100% !important;
-      }
-      #main-content-container .page {
-        max-width: 100% !important;
-      }
-      #main-content-container .ls-page-title {
-        max-width: 100% !important;
-      }
-      #main-content-container .editor-inner {
-        max-width: 100% !important;
-      }
-    `;
-    doc.head.appendChild(style);
-  } catch (e) {
-    console.warn("[constel] could not adjust LogSeq layout:", e);
-  }
-}
-
-function restoreLogseqContent() {
-  try {
-    parent.document.getElementById(CONSTEL_STYLE_ID)?.remove();
-  } catch (_) {
-    // ignore
-  }
-}
-
 function initResize() {
   const handle = document.getElementById("constel-resize-handle");
   if (!handle) return;
 
   let dragging = false;
   let rafId: number | null = null;
-  let lastPct = 50;
 
-  const applyResize = () => {
-    rafId = null;
-    const iframe = window.frameElement as HTMLIFrameElement | null;
-    if (iframe) {
-      const wrapper = iframe.parentElement;
-      if (wrapper) wrapper.style.width = `${lastPct}vw`;
-    }
-    pushLogseqContent(lastPct);
-  };
+  // Full-viewport overlay to capture mouse events during drag
+  const overlay = document.createElement("div");
+  overlay.style.cssText =
+    "position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:9999;cursor:col-resize;display:none;";
+  document.body.appendChild(overlay);
+
+  // Visual indicator line
+  const indicator = document.createElement("div");
+  indicator.style.cssText =
+    "position:absolute;top:0;bottom:0;width:2px;background:var(--accent, #045591);pointer-events:none;";
+  overlay.appendChild(indicator);
 
   const onMove = (e: MouseEvent) => {
     if (!dragging) return;
     e.preventDefault();
-    // Use parent viewport width — stable reference that doesn't change during drag
-    const parentVW = parent.window.innerWidth;
-    lastPct = Math.max(20, Math.min(80, (e.clientX / parentVW) * 100));
-    // Throttle DOM updates to animation frames
+    state.splitPct = Math.max(20, Math.min(80, (e.clientX / window.innerWidth) * 100));
     if (rafId === null) {
-      rafId = requestAnimationFrame(applyResize);
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        indicator.style.left = `${state.splitPct}vw`;
+      });
     }
   };
 
   const onUp = () => {
     if (!dragging) return;
     dragging = false;
+    overlay.style.display = "none";
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
-    try {
-      parent.document.body.style.cursor = "";
-      parent.document.body.style.userSelect = "";
-    } catch (_) { /* cross-origin guard */ }
+
+    // Apply final size
+    logseq.setMainUIInlineStyle({ width: `${state.splitPct}vw` });
+    provideLayoutStyle(state.splitPct);
   };
 
   handle.addEventListener("mousedown", (e) => {
     e.preventDefault();
     dragging = true;
+    // Expand iframe to full viewport to capture all mouse events
+    logseq.setMainUIInlineStyle({ width: "100vw" });
+    overlay.style.display = "block";
+    indicator.style.left = `${state.splitPct}vw`;
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-    try {
-      parent.document.body.style.cursor = "col-resize";
-      parent.document.body.style.userSelect = "none";
-    } catch (_) { /* cross-origin guard */ }
   });
 
-  // Listen on iframe document
+  overlay.addEventListener("mousemove", onMove);
+  overlay.addEventListener("mouseup", onUp);
   document.addEventListener("mousemove", onMove);
   document.addEventListener("mouseup", onUp);
-
-  // Also listen on parent document to capture mouse when it leaves the iframe
-  try {
-    parent.document.addEventListener("mousemove", onMove);
-    parent.document.addEventListener("mouseup", onUp);
-  } catch (_) { /* cross-origin guard */ }
 }
 
 function escapeHtml(str: string): string {
