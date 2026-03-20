@@ -216,7 +216,7 @@ export function renderGraph3D(
   const showNodes = settings.showNodes ?? true;
   const showTitles = settings.showTitles ?? true;
 
-  const graph = ForceGraph3D({ controlType: "orbit" })(container)
+  const graph = new ForceGraph3D(container, { controlType: "orbit" })
     .width(width)
     .height(height)
     .backgroundColor("rgba(0,0,0,0)")

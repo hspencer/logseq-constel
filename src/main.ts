@@ -160,47 +160,31 @@ function main() {
   console.log("[constel] ready");
 }
 
-/** Register the base layout CSS once via logseq.provideStyle().
- *  Uses :has(.visible) so it auto-activates/deactivates with showMainUI/hideMainUI.
- *  Uses CSS custom property --constel-split for dynamic resize. */
-let layoutStyleRegistered = false;
-function registerLayoutStyle() {
-  if (layoutStyleRegistered) return;
-  layoutStyleRegistered = true;
-  const sel = "#logseq-constel_lsp_main.visible";
-  logseq.provideStyle(`
-    body:has(${sel}) #main-content-container {
-      margin-left: var(--constel-split, 50vw) !important;
-      width: calc(100vw - var(--constel-split, 50vw)) !important;
-    }
-    body:has(${sel}) #main-content-container .cp__sidebar-main-content {
-      max-width: 100% !important;
-      padding-left: 24px !important;
-      padding-right: 24px !important;
-    }
-    body:has(${sel}) #main-content-container .page,
-    body:has(${sel}) #main-content-container .ls-page-title,
-    body:has(${sel}) #main-content-container .editor-inner {
-      max-width: 100% !important;
-    }
-  `);
-}
-
-/** Update the split percentage. Sets CSS variable on parent (local) or
- *  falls back to the 50vw default baked into the provideStyle CSS (marketplace). */
+/** Inject layout CSS via logseq.provideStyle({ key, style }).
+ *  The key ensures idempotent replacement — no accumulation.
+ *  Uses :has(.visible) so it auto-deactivates on hideMainUI.
+ *  Can be called on every resize with updated percentage. */
 function provideLayoutStyle(pct: number) {
-  registerLayoutStyle();
-  try {
-    parent.document.documentElement.style.setProperty("--constel-split", `${pct}vw`);
-  } catch (_) {
-    // Marketplace: variable can't be set, but 50vw default still works
-  }
-}
-
-function clearLayoutVar() {
-  try {
-    parent.document.documentElement.style.removeProperty("--constel-split");
-  } catch (_) {}
+  const sel = "#logseq-constel_lsp_main.visible";
+  logseq.provideStyle({
+    key: "constel-layout",
+    style: `
+      body:has(${sel}) #main-content-container {
+        margin-left: ${pct}vw !important;
+        width: ${100 - pct}vw !important;
+      }
+      body:has(${sel}) #main-content-container .cp__sidebar-main-content {
+        max-width: 100% !important;
+        padding-left: 24px !important;
+        padding-right: 24px !important;
+      }
+      body:has(${sel}) #main-content-container .page,
+      body:has(${sel}) #main-content-container .ls-page-title,
+      body:has(${sel}) #main-content-container .editor-inner {
+        max-width: 100% !important;
+      }
+    `,
+  });
 }
 
 async function activate() {
@@ -299,8 +283,7 @@ function deactivate() {
   state.history = [];
   state.dark = false;
 
-  // Clear CSS variable; layout auto-deactivates via :has(.visible)
-  clearLayoutVar();
+  // Layout CSS auto-deactivates via :has(.visible) on hideMainUI()
 
   // Reset container styles
   logseq.setMainUIInlineStyle({
