@@ -60,6 +60,9 @@ function main() {
   styleEl.textContent = CSS;
   document.head.appendChild(styleEl);
 
+  // Register layout CSS once (uses :has(.visible) for auto-toggle)
+  registerLayoutStyle();
+
   // Transparent background; position/size managed in activate()/deactivate()
   logseq.setMainUIInlineStyle({
     background: "transparent",
@@ -160,45 +163,43 @@ function main() {
   console.log("[constel] ready");
 }
 
-/** Inject layout CSS into LogSeq's parent document.
- *  Direct DOM injection with explicit cleanup — no :has() needed. */
-function provideLayoutStyle(pct: number) {
-  removeLayoutStyle();
+/** Register layout CSS via logseq.provideStyle() — works in marketplace.
+ *  Uses :has(.visible) so it auto-activates/deactivates with showMainUI/hideMainUI.
+ *  Called ONCE in main(), uses CSS custom property for dynamic percentage. */
+function registerLayoutStyle() {
+  const sel = "#logseq-constel_lsp_main.visible";
+  logseq.provideStyle(`
+    body:has(${sel}) #main-content-container {
+      margin-left: var(--constel-split, 50vw) !important;
+      width: calc(100vw - var(--constel-split, 50vw)) !important;
+    }
+    body:has(${sel}) #main-content-container .cp__sidebar-main-content {
+      max-width: 100% !important;
+      padding-left: 24px !important;
+      padding-right: 24px !important;
+    }
+    body:has(${sel}) #main-content-container .page,
+    body:has(${sel}) #main-content-container .ls-page-title,
+    body:has(${sel}) #main-content-container .editor-inner {
+      max-width: 100% !important;
+    }
+  `);
+}
+
+/** Update the split percentage via CSS custom property on the parent <html>. */
+function updateSplitVar(pct: number) {
   try {
-    const styleEl = parent.document.createElement("style");
-    styleEl.id = "constel-layout-style";
-    styleEl.textContent = `
-      #main-content-container {
-        margin-left: ${pct}vw !important;
-        width: ${100 - pct}vw !important;
-      }
-      #main-content-container .cp__sidebar-main-content {
-        max-width: 100% !important;
-        padding-left: 24px !important;
-        padding-right: 24px !important;
-      }
-      #main-content-container .page,
-      #main-content-container .ls-page-title,
-      #main-content-container .editor-inner {
-        max-width: 100% !important;
-      }
-    `;
-    parent.document.head.appendChild(styleEl);
-  } catch (e) {
-    console.warn("[constel] cannot inject layout style:", e);
+    parent.document.documentElement.style.setProperty("--constel-split", `${pct}vw`);
+  } catch (_) {
+    // Marketplace: can't access parent, but the CSS default (50vw) still works
   }
 }
 
-function removeLayoutStyle() {
+/** Clear the CSS custom property on deactivate. */
+function clearSplitVar() {
   try {
-    const el = parent.document.getElementById("constel-layout-style");
-    if (el) {
-      el.remove();
-      console.log("[constel] layout style removed");
-    }
-  } catch (e) {
-    console.warn("[constel] cannot access parent document:", e);
-  }
+    parent.document.documentElement.style.removeProperty("--constel-split");
+  } catch (_) {}
 }
 
 async function activate() {
@@ -282,7 +283,7 @@ async function activate() {
   });
 
   // Push LogSeq main content to the right
-  provideLayoutStyle(state.splitPct);
+  updateSplitVar(state.splitPct);
 
   await navigateTo(pageName);
 }
@@ -297,8 +298,8 @@ function deactivate() {
   state.history = [];
   state.dark = false;
 
-  // Remove layout style from parent document
-  removeLayoutStyle();
+  // Clear split variable — CSS auto-deactivates via :has(.visible)
+  clearSplitVar();
 
   // Reset container styles
   logseq.setMainUIInlineStyle({
@@ -635,7 +636,7 @@ function initResize() {
 
     // Apply final size
     logseq.setMainUIInlineStyle({ width: `${state.splitPct}vw` });
-    provideLayoutStyle(state.splitPct);
+    updateSplitVar(state.splitPct);
   };
 
   handle.addEventListener("mousedown", (e) => {
