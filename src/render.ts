@@ -31,6 +31,27 @@ function titleFontSize(d: GraphNode): number {
   return FONT_MIN + (FONT_MAX - FONT_MIN) * Math.sqrt(t);
 }
 
+// ── Max label width before wrapping ──
+const MAX_LABEL_CHARS = 70;
+
+/** Split text into lines respecting word boundaries and max char width. */
+function wrapText(text: string, maxChars: number): string[] {
+  if (text.length <= maxChars) return [text];
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (current && (current.length + 1 + word.length) > maxChars) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = current ? current + " " + word : word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length ? lines : [text];
+}
+
 // ── History ring config ──
 const RING_COLOR = "#ef7a1c";
 
@@ -253,6 +274,7 @@ function renderCircularNodes(
       .append("circle")
       .attr("r", (d) => (d.central ? 12 : 4 + Math.min(d.degree * 1.5, 10)))
       .attr("fill", (d) => (d.central ? colors.nodeCentral : colors.nodeFill))
+      .attr("fill-opacity", 0.7)
       .attr("stroke", "none")
       .attr("stroke-width", 0);
 
@@ -272,15 +294,25 @@ function renderCircularNodes(
   }
 
   if (showTitles) {
-    // Labels centered on the node
-    node
-      .append("text")
-      .text((d) => d.name)
-      .attr("text-anchor", "middle")
-      .attr("dominant-baseline", "central")
-      .attr("font-size", (d) => (d.central ? `${fontSize + 2}px` : `${fontSize}px`))
-      .attr("font-weight", (d) => (d.central ? "bold" : "normal"))
-      .attr("fill", colors.textNormal);
+    // Multiline labels centered on the node
+    node.each(function (d) {
+      const g = d3.select(this);
+      const fs = d.central ? fontSize + 2 : fontSize;
+      const lines = wrapText(d.name, MAX_LABEL_CHARS);
+      const lineHeight = fs * 1.2;
+      const yOffset = -((lines.length - 1) * lineHeight) / 2;
+      const textEl = g.append("text")
+        .attr("text-anchor", "middle")
+        .attr("font-size", `${fs}px`)
+        .attr("font-weight", d.central ? "bold" : "normal")
+        .attr("fill", colors.textNormal);
+      lines.forEach((line, i) => {
+        textEl.append("tspan")
+          .attr("x", 0)
+          .attr("dy", i === 0 ? `${yOffset}px` : `${lineHeight}px`)
+          .text(line);
+      });
+    });
   } else {
     // Tooltip only (native SVG title element)
     node.append("title").text((d) => d.name);
@@ -322,24 +354,31 @@ function renderTitleNodes(
     return fMin + (fMax - fMin) * Math.sqrt(t);
   }
 
-  // Text labels — the only visible element per node
-  const textEls = node
-    .append("text")
-    .text((d) => d.name)
-    .attr("font-size", (d) => `${scaledTitleFontSize(d)}px`)
-    .attr("font-weight", (d) => (d.central ? "bold" : "normal"))
-    .attr("font-family", fontFamily)
-    .attr("text-anchor", "middle")
-    .attr("dominant-baseline", "central")
-    .attr("fill", (d) => {
-      const hc = historyColor(d);
-      if (hc) return hc;
-      return d.central ? colors.nodeCentral : colors.textNormal;
+  // Text labels with word wrap — the only visible element per node
+  node.each(function (d) {
+    const g = d3.select(this);
+    const fs = scaledTitleFontSize(d);
+    const lines = wrapText(d.name, MAX_LABEL_CHARS);
+    const lineHeight = fs * 1.25;
+    const yOffset = -((lines.length - 1) * lineHeight) / 2;
+    const fill = historyColor(d) ?? (d.central ? colors.nodeCentral : colors.textNormal);
+    const textEl = g.append("text")
+      .attr("font-size", `${fs}px`)
+      .attr("font-weight", d.central ? "bold" : "normal")
+      .attr("font-family", fontFamily)
+      .attr("text-anchor", "middle")
+      .attr("fill", fill);
+    lines.forEach((line, i) => {
+      textEl.append("tspan")
+        .attr("x", 0)
+        .attr("dy", i === 0 ? `${yOffset}px` : `${lineHeight}px`)
+        .text(line);
     });
+  });
 
-  // Measure bounding boxes for collision (rects are invisible)
-  textEls.each(function (d) {
-    const bbox = (this as SVGTextElement).getBBox();
+  // Measure bounding boxes for collision
+  node.each(function (d) {
+    const bbox = (this as SVGGElement).getBBox();
     dims.set(d.id, {
       w: bbox.width + PAD_X * 2,
       h: bbox.height + PAD_Y * 2,

@@ -97,6 +97,24 @@ export function renderGraph3D(
     return colors.nodeFill;
   }
 
+  const MAX_LABEL_CHARS = 70;
+  function wrapText3D(text: string, maxChars: number): string[] {
+    if (text.length <= maxChars) return [text];
+    const words = text.split(/\s+/);
+    const lines: string[] = [];
+    let current = "";
+    for (const word of words) {
+      if (current && (current.length + 1 + word.length) > maxChars) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = current ? current + " " + word : word;
+      }
+    }
+    if (current) lines.push(current);
+    return lines.length ? lines : [text];
+  }
+
   // Create billboard sprite for each node: centered circle behind text, always facing camera
   function createNodeSprite(node: any): THREE.Group {
     const size = nodeSize(node);
@@ -104,21 +122,29 @@ export function renderGraph3D(
     const baseFontSize = settings.fontSize ?? 12;
     const spriteFontSize = node.central ? baseFontSize * 4.5 : baseFontSize * 3.3;
     const textColor = node.central ? colors.nodeCentral : colors.text;
+    const fontStr = `${node.central ? "bold " : ""}${spriteFontSize * dpr}px system-ui, -apple-system, sans-serif`;
 
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d")!;
     const dpr = 2;
-    const text = showTitles ? node.name : "";
-    ctx.font = `${node.central ? "bold " : ""}${spriteFontSize * dpr}px system-ui, -apple-system, sans-serif`;
-    const textMetrics = ctx.measureText(text);
-    const textWidth = showTitles ? textMetrics.width : 0;
-    const textHeight = spriteFontSize * dpr * 1.4;
+    const lines = showTitles ? wrapText3D(node.name, MAX_LABEL_CHARS) : [];
+    const lineHeight = spriteFontSize * dpr * 1.3;
+
+    // Measure max line width
+    ctx.font = fontStr;
+    let maxLineW = 0;
+    for (const line of lines) {
+      const w = ctx.measureText(line).width;
+      if (w > maxLineW) maxLineW = w;
+    }
+
+    const textBlockH = lines.length * lineHeight;
     const circleRadius = size * dpr * 12;
     const padding = 8 * dpr;
+    const hPad = 36 * dpr;
 
-    // Canvas sized to fit whichever is larger: circle or text
-    const totalWidth = Math.max(circleRadius * 2, textWidth) + padding * 2;
-    const totalHeight = Math.max(circleRadius * 2, textHeight) + padding * 2;
+    const totalWidth = Math.max(circleRadius * 2, maxLineW + hPad) + padding * 2;
+    const totalHeight = Math.max(circleRadius * 2, textBlockH) + padding * 2;
     canvas.width = totalWidth;
     canvas.height = totalHeight;
 
@@ -126,13 +152,13 @@ export function renderGraph3D(
     const cy = totalHeight / 2;
 
     // Re-set font after resize
-    ctx.font = `${node.central ? "bold " : ""}${spriteFontSize * dpr}px system-ui, -apple-system, sans-serif`;
+    ctx.font = fontStr;
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
 
     // Draw circle behind text if nodes visible
     if (showNodes) {
-      ctx.globalAlpha = 0.6;
+      ctx.globalAlpha = 0.7;
       ctx.beginPath();
       ctx.arc(cx, cy, circleRadius, 0, Math.PI * 2);
       ctx.fillStyle = color;
@@ -140,13 +166,12 @@ export function renderGraph3D(
     }
 
     // Draw text with opaque background pill for legibility
-    if (showTitles) {
-      const tm = ctx.measureText(text);
-      const pillH = spriteFontSize * dpr * 1.2;
-      const pillW = tm.width + 12 * dpr;
-      ctx.globalAlpha = 0.85;
+    if (showTitles && lines.length > 0) {
+      const pillH = textBlockH + 12 * dpr;
+      const pillW = maxLineW + hPad;
+      ctx.globalAlpha = 0.95;
       ctx.fillStyle = dark ? "rgba(30,30,30,0.9)" : "rgba(255,255,255,0.9)";
-      const rx = cx - pillW / 2, ry = cy - pillH / 2, rr = pillH / 2;
+      const rx = cx - pillW / 2, ry = cy - pillH / 2, rr = Math.min(pillH / 2, 12 * dpr);
       ctx.beginPath();
       ctx.moveTo(rx + rr, ry);
       ctx.lineTo(rx + pillW - rr, ry);
@@ -162,7 +187,10 @@ export function renderGraph3D(
 
       ctx.globalAlpha = 1.0;
       ctx.fillStyle = textColor;
-      ctx.fillText(text, cx, cy);
+      const startY = cy - ((lines.length - 1) * lineHeight) / 2;
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], cx, startY + i * lineHeight);
+      }
     }
 
     const texture = new THREE.CanvasTexture(canvas);

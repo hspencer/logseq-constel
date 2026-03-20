@@ -160,34 +160,47 @@ function main() {
   console.log("[constel] ready");
 }
 
-/** Inject layout CSS into Logseq's parent via provideUI (supports key/replace).
- *  Uses :has(.visible) so styles auto-activate on showMainUI, auto-deactivate on hideMainUI.
- *  Can be called multiple times (e.g. on resize) — the key ensures replacement, no accumulation. */
-function provideLayoutStyle(pct: number) {
+/** Register the base layout CSS once via logseq.provideStyle().
+ *  Uses :has(.visible) so it auto-activates/deactivates with showMainUI/hideMainUI.
+ *  Uses CSS custom property --constel-split for dynamic resize. */
+let layoutStyleRegistered = false;
+function registerLayoutStyle() {
+  if (layoutStyleRegistered) return;
+  layoutStyleRegistered = true;
   const sel = "#logseq-constel_lsp_main.visible";
-  logseq.provideUI({
-    key: "constel-layout",
-    replace: true,
-    template: `
-      <style>
-        body:has(${sel}) #main-content-container {
-          margin-left: ${pct}vw !important;
-          width: ${100 - pct}vw !important;
-        }
-        body:has(${sel}) #main-content-container .cp__sidebar-main-content {
-          max-width: 100% !important;
-          padding-left: 24px !important;
-          padding-right: 24px !important;
-        }
-        body:has(${sel}) #main-content-container .page,
-        body:has(${sel}) #main-content-container .ls-page-title,
-        body:has(${sel}) #main-content-container .editor-inner {
-          max-width: 100% !important;
-        }
-      </style>
-    `,
-    style: { display: "none" },
-  });
+  logseq.provideStyle(`
+    body:has(${sel}) #main-content-container {
+      margin-left: var(--constel-split, 50vw) !important;
+      width: calc(100vw - var(--constel-split, 50vw)) !important;
+    }
+    body:has(${sel}) #main-content-container .cp__sidebar-main-content {
+      max-width: 100% !important;
+      padding-left: 24px !important;
+      padding-right: 24px !important;
+    }
+    body:has(${sel}) #main-content-container .page,
+    body:has(${sel}) #main-content-container .ls-page-title,
+    body:has(${sel}) #main-content-container .editor-inner {
+      max-width: 100% !important;
+    }
+  `);
+}
+
+/** Update the split percentage. Sets CSS variable on parent (local) or
+ *  falls back to the 50vw default baked into the provideStyle CSS (marketplace). */
+function provideLayoutStyle(pct: number) {
+  registerLayoutStyle();
+  try {
+    parent.document.documentElement.style.setProperty("--constel-split", `${pct}vw`);
+  } catch (_) {
+    // Marketplace: variable can't be set, but 50vw default still works
+  }
+}
+
+function clearLayoutVar() {
+  try {
+    parent.document.documentElement.style.removeProperty("--constel-split");
+  } catch (_) {}
 }
 
 async function activate() {
@@ -286,7 +299,8 @@ function deactivate() {
   state.history = [];
   state.dark = false;
 
-  // Layout CSS auto-deactivates via :has(.visible) on hideMainUI()
+  // Clear CSS variable; layout auto-deactivates via :has(.visible)
+  clearLayoutVar();
 
   // Reset container styles
   logseq.setMainUIInlineStyle({
@@ -519,10 +533,10 @@ function renderControls() {
 
   const sep = document.createElement("span"); sep.className = "constel-ctrl-sep"; mixRow.appendChild(sep);
 
-  mixRow.appendChild(createSwitch(t("edges"), state.showEdges, (v) => { state.showEdges = v; refreshGraph(); }));
+  mixRow.appendChild(createSwitch(t("edges"), state.showEdges, (v) => { state.showEdges = v; updateVisuals(); }));
   if (state.viewMode === "nodes2d" || state.viewMode === "nodes3d") {
-    mixRow.appendChild(createSwitch(t("nodes"), state.showNodes, (v) => { state.showNodes = v; refreshGraph(); }));
-    mixRow.appendChild(createSwitch(t("titleLabels"), state.showTitles, (v) => { state.showTitles = v; refreshGraph(); }));
+    mixRow.appendChild(createSwitch(t("nodes"), state.showNodes, (v) => { state.showNodes = v; updateVisuals(); }));
+    mixRow.appendChild(createSwitch(t("titleLabels"), state.showTitles, (v) => { state.showTitles = v; updateVisuals(); }));
   }
 
   // Font stepper
@@ -533,7 +547,7 @@ function renderControls() {
   const fVal = document.createElement("span"); fVal.className = "constel-stepper-value"; fVal.textContent = String(state.fontSize);
   const fPlus = document.createElement("button"); fPlus.className = "constel-stepper-btn"; fPlus.textContent = "+"; fPlus.setAttribute("aria-label", t("incFont"));
   fStepper.append(fMinus, fVal, fPlus);
-  const updFont = (v: number) => { const c = Math.max(8, Math.min(24, v)); if (c === state.fontSize) return; state.fontSize = c; fVal.textContent = String(c); fMinus.disabled = c <= 8; fPlus.disabled = c >= 24; refreshGraph(); };
+  const updFont = (v: number) => { const c = Math.max(8, Math.min(24, v)); if (c === state.fontSize) return; state.fontSize = c; fVal.textContent = String(c); fMinus.disabled = c <= 8; fPlus.disabled = c >= 24; updateVisuals(); };
   fMinus.disabled = state.fontSize <= 8; fPlus.disabled = state.fontSize >= 24;
   fMinus.addEventListener("click", () => updFont(state.fontSize - 1));
   fPlus.addEventListener("click", () => updFont(state.fontSize + 1));
@@ -548,25 +562,7 @@ function refreshGraph() {
   const cloned: GraphData = JSON.parse(JSON.stringify(state.graphData));
   const filtered = applyQuery(cloned, state.query);
 
-  // Map viewMode to render nodeStyle
-  const nodeStyleMap: Record<string, string> = {
-    titles: "title",
-    nodes2d: "circular",
-    nodes3d: "3d",
-  };
-  const nodeStyle = nodeStyleMap[state.viewMode] ?? "circular";
-
-  const settings = {
-    chargeStrength: state.repulsionForce,
-    linkDistance: 80,
-    history: state.history,
-    dark: state.dark,
-    nodeStyle: nodeStyle as "circular" | "title",
-    showEdges: state.showEdges,
-    showNodes: state.showNodes,
-    showTitles: state.showTitles,
-    fontSize: state.fontSize,
-  };
+  const settings = buildSettings();
 
   const container = document.getElementById("constel-graph");
   if (!container) return;
@@ -581,6 +577,91 @@ function refreshGraph() {
     cleanupGraph3D();
     renderGraph(container, filtered, onClickNode, settings);
   }
+}
+
+/** Lightweight visual update — no simulation restart.
+ *  For toggling edges, nodes, titles, and font size changes. */
+function updateVisuals() {
+  const container = document.getElementById("constel-graph");
+  if (!container) return;
+
+  // 3D: must re-render (sprites are baked textures)
+  if (state.viewMode === "nodes3d") {
+    refreshGraph();
+    return;
+  }
+
+  const svg = container.querySelector("svg");
+  if (!svg) return;
+
+  // Links visibility
+  const linkGroup = svg.querySelector("g > g:first-child") as SVGGElement | null;
+  if (linkGroup) linkGroup.style.display = state.showEdges ? "" : "none";
+
+  // Nodes: circles and labels are inside per-node <g> groups
+  const nodeGroups = svg.querySelectorAll("g > g:nth-child(2) > g");
+  nodeGroups.forEach((g) => {
+    // Circles
+    g.querySelectorAll("circle").forEach((c) => {
+      (c as SVGElement).style.display = state.showNodes ? "" : "none";
+    });
+    // Text labels
+    const textEl = g.querySelector("text") as SVGTextElement | null;
+    const titleEl = g.querySelector("title");
+    if (state.showTitles) {
+      if (!textEl && titleEl) {
+        // Switch from tooltip to visible text — need full refresh
+        refreshGraph();
+        return;
+      }
+      if (textEl) {
+        textEl.style.display = "";
+        const d = (textEl as any).__data__;
+        const fs = d?.central ? state.fontSize + 2 : state.fontSize;
+        textEl.setAttribute("font-size", `${fs}px`);
+      }
+    } else {
+      if (textEl) textEl.style.display = "none";
+    }
+  });
+
+  // Title mode: update font sizes
+  if (state.viewMode === "titles") {
+    nodeGroups.forEach((g) => {
+      const textEl = g.querySelector("text") as SVGTextElement | null;
+      if (textEl) {
+        const d = (textEl as any).__data__;
+        if (d) {
+          const fMin = state.fontSize;
+          const fMax = state.fontSize + 8;
+          const count = d.blockCount ?? 1;
+          const t = Math.min(1, Math.max(0, (count - 1) / 99));
+          const fs = d.central ? fMax : fMin + (fMax - fMin) * Math.sqrt(t);
+          textEl.setAttribute("font-size", `${fs}px`);
+        }
+      }
+    });
+  }
+}
+
+function buildSettings() {
+  const nodeStyleMap: Record<string, string> = {
+    titles: "title",
+    nodes2d: "circular",
+    nodes3d: "3d",
+  };
+  const nodeStyle = nodeStyleMap[state.viewMode] ?? "circular";
+  return {
+    chargeStrength: state.repulsionForce,
+    linkDistance: 80,
+    history: state.history,
+    dark: state.dark,
+    nodeStyle: nodeStyle as "circular" | "title",
+    showEdges: state.showEdges,
+    showNodes: state.showNodes,
+    showTitles: state.showTitles,
+    fontSize: state.fontSize,
+  };
 }
 
 function initResize() {

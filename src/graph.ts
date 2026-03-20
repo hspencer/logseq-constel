@@ -17,10 +17,11 @@ export async function buildGraph(
   const linkSet = new Set<string>();
   const links: GraphLink[] = [];
 
-  function addNode(name: string, central = false, properties?: Record<string, any>, blockCount?: number): GraphNode {
+  function addNode(name: string, central = false, properties?: Record<string, any>, blockCount?: number, originalName?: string): GraphNode {
     const key = name.toLowerCase();
+    const displayName = originalName || name;
     if (!nodeMap.has(key)) {
-      nodeMap.set(key, { id: name, name, central, degree: 0, properties, blockCount });
+      nodeMap.set(key, { id: name, name: displayName, central, degree: 0, properties, blockCount });
     }
     const node = nodeMap.get(key)!;
     if (central) node.central = true;
@@ -45,7 +46,7 @@ export async function buildGraph(
   // Central node (with properties and block count)
   const centralBlocks = await logseq.Editor.getPageBlocksTree(pageName);
   const centralBlockCount = centralBlocks ? flattenBlocks(centralBlocks).length : 0;
-  addNode(pageName, true, page.properties as Record<string, any> | undefined, centralBlockCount);
+  addNode(pageName, true, page.properties as Record<string, any> | undefined, centralBlockCount, (page as any).originalName ?? pageName);
 
   // BFS expansion by depth
   let frontier = new Set<string>([pageName.toLowerCase()]);
@@ -64,7 +65,7 @@ export async function buildGraph(
       if (backlinks) {
         for (const [refPage] of backlinks) {
           if (refPage?.name) {
-            addNode(refPage.name, false, refPage.properties as Record<string, any> | undefined);
+            addNode(refPage.name, false, refPage.properties as Record<string, any> | undefined, undefined, (refPage as any).originalName ?? refPage.name);
             addLink(name, refPage.name);
             const refKey = refPage.name.toLowerCase();
             if (!visited.has(refKey)) {
@@ -107,7 +108,7 @@ export async function buildGraph(
           // Verify page exists
           const refPage = await logseq.Editor.getPage(refName);
           if (!refPage) continue; // skip non-existent pages
-          addNode(refPage.name, false, refPage.properties as Record<string, any> | undefined);
+          addNode(refPage.name, false, refPage.properties as Record<string, any> | undefined, undefined, (refPage as any).originalName ?? refPage.name);
           addLink(name, refPage.name);
           if (!visited.has(refKey)) {
             visited.add(refKey);
