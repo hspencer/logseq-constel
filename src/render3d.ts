@@ -122,11 +122,11 @@ export function renderGraph3D(
     const baseFontSize = settings.fontSize ?? 12;
     const spriteFontSize = node.central ? baseFontSize * 4.5 : baseFontSize * 3.3;
     const textColor = node.central ? colors.nodeCentral : colors.text;
+    const dpr = 2;
     const fontStr = `${node.central ? "bold " : ""}${spriteFontSize * dpr}px system-ui, -apple-system, sans-serif`;
 
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d")!;
-    const dpr = 2;
     const lines = showTitles ? wrapText3D(node.name, MAX_LABEL_CHARS) : [];
     const lineHeight = spriteFontSize * dpr * 1.3;
 
@@ -216,7 +216,7 @@ export function renderGraph3D(
   const showNodes = settings.showNodes ?? true;
   const showTitles = settings.showTitles ?? true;
 
-  const graph = ForceGraph3D()(container)
+  const graph = ForceGraph3D({ controlType: "orbit" })(container)
     .width(width)
     .height(height)
     .backgroundColor("rgba(0,0,0,0)")
@@ -232,7 +232,6 @@ export function renderGraph3D(
     .onNodeHover((node: any) => {
       container.style.cursor = node ? "pointer" : "default";
     })
-    .controlType("orbit" as any)
     .enableNavigationControls(true);
 
   // Auto-fit after simulation settles
@@ -244,9 +243,13 @@ export function renderGraph3D(
 
   // Listen for external zoom/center events from controls toolbar
   const onZoom = ((e: CustomEvent) => {
-    const camera = graph.camera();
-    const dist = camera.position.length();
-    camera.position.setLength(e.detail === "in" ? dist * 0.67 : dist * 1.5);
+    const pos = graph.cameraPosition();
+    const factor = e.detail === "in" ? 0.67 : 1.5;
+    graph.cameraPosition(
+      { x: pos.x * factor, y: pos.y * factor, z: pos.z * factor },
+      undefined, // keep same lookAt
+      300
+    );
   }) as EventListener;
   const onCenter = (() => {
     // Reset camera to look at origin, then fit all nodes

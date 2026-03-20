@@ -1,7 +1,7 @@
 {
   "name": "logseq-constel",
 
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Split view: graph visualization alongside the selected page and its connections",
   "license": "MIT",
   "repository": {
