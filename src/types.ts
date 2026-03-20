@@ -35,9 +35,17 @@ export interface QueryFilter {
   minDegree?: number;
 }
 
+export type ViewMode = "titles" | "nodes2d" | "nodes3d";
+
 export interface ConstelState {
   active: boolean;
   currentPage: string | null;
   query: QueryFilter;
   graphData: GraphData | null;
+  viewMode: ViewMode;
+  showEdges: boolean;
+  showTitles: boolean;
+  fontSize: number;
+  graphDepth: number;
+  repulsionForce: number;
 }

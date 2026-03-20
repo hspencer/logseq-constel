@@ -6,10 +6,14 @@ export type NodeStyle = "circular" | "title";
 export interface RenderSettings {
   chargeStrength?: number;
   linkDistance?: number;
-  history?: string[]; // recent pages, last = current
+  history?: string[];
   dark?: boolean;
   fontFamily?: string;
   nodeStyle?: NodeStyle;
+  showEdges?: boolean;
+  showNodes?: boolean;
+  showTitles?: boolean;
+  fontSize?: number;
 }
 
 // ── Title-mode constants ──
@@ -30,12 +34,21 @@ function titleFontSize(d: GraphNode): number {
 // ── History ring config ──
 const RING_COLOR = "#ef7a1c";
 
+// Track listeners for cleanup on re-render
+let active2dListeners: { event: string; fn: EventListener }[] = [];
+
 export function renderGraph(
   container: HTMLElement,
   data: GraphData,
   onClickPage: (pageName: string) => void,
   settings: RenderSettings = {}
 ) {
+  // Clean up previous listeners
+  for (const { event, fn } of active2dListeners) {
+    document.removeEventListener(event, fn);
+  }
+  active2dListeners = [];
+
   container.innerHTML = "";
 
   const width = container.clientWidth;
@@ -51,43 +64,37 @@ export function renderGraph(
     .attr("role", "img")
     .attr("aria-label", "Knowledge graph visualization");
 
+  const showEdges = settings.showEdges ?? true;
+  const showNodes = settings.showNodes ?? true;
+  const showTitles = settings.showTitles ?? true;
+  const fontSize = settings.fontSize ?? 12;
+
   const g = svg.append("g");
   const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
     .scaleExtent([0.2, 5])
     .on("zoom", (event) => g.attr("transform", event.transform));
   svg.call(zoomBehavior as any);
 
-  // Zoom controls
-  const controls = document.createElement("div");
-  controls.className = "constel-zoom-controls";
-  const btnPlus = document.createElement("button");
-  btnPlus.textContent = "+";
-  btnPlus.title = "Zoom in";
-  btnPlus.setAttribute("aria-label", "Zoom in");
-  const btnMinus = document.createElement("button");
-  btnMinus.textContent = "\u2212";
-  btnMinus.title = "Zoom out";
-  btnMinus.setAttribute("aria-label", "Zoom out");
-  const btnFit = document.createElement("button");
-  btnFit.textContent = "\u2300";
-  btnFit.title = "Fit to view";
-  btnFit.setAttribute("aria-label", "Fit to view");
-  controls.append(btnPlus, btnMinus, btnFit);
-  container.appendChild(controls);
-
-  const svgEl = svg.node()!;
-  btnPlus.addEventListener("click", () => {
-    svg.transition().duration(300).call(zoomBehavior.scaleBy as any, 1.5);
-  });
-  btnMinus.addEventListener("click", () => {
-    svg.transition().duration(300).call(zoomBehavior.scaleBy as any, 0.67);
-  });
-  btnFit.addEventListener("click", () => {
+  // Listen for external zoom/center events from the controls toolbar
+  const onZoom = ((e: CustomEvent) => {
+    if (e.detail === "in") {
+      svg.transition().duration(300).call(zoomBehavior.scaleBy as any, 1.5);
+    } else {
+      svg.transition().duration(300).call(zoomBehavior.scaleBy as any, 0.67);
+    }
+  }) as EventListener;
+  const onCenter = (() => {
     svg.transition().duration(300).call(
       zoomBehavior.transform as any,
       d3.zoomIdentity.translate(width / 2, height / 2).scale(0.8).translate(-width / 2, -height / 2)
     );
-  });
+  }) as EventListener;
+  document.addEventListener("constel:zoom", onZoom);
+  document.addEventListener("constel:center", onCenter);
+  active2dListeners = [
+    { event: "constel:zoom", fn: onZoom },
+    { event: "constel:center", fn: onCenter },
+  ];
 
   // Theme colors — read CSS variables from #constel-root, fall back to defaults
   const dark = settings.dark ?? false;
@@ -113,16 +120,18 @@ export function renderGraph(
     if (!historyMap.has(key)) historyMap.set(key, i);
   });
 
-  // Links
-  const link = g
-    .append("g")
+  // Links (conditional on showEdges)
+  const linkGroup = g.append("g")
     .attr("stroke", colors.linkStroke)
-    .attr("stroke-opacity", 0.6)
-    .selectAll("line")
-    .data(data.links)
-    .join("line")
-    .attr("stroke-width", 1)
-    .style("transition", "stroke-opacity 0.2s, stroke 0.2s");
+    .attr("stroke-opacity", 0.6);
+  const link = showEdges
+    ? linkGroup
+        .selectAll("line")
+        .data(data.links)
+        .join("line")
+        .attr("stroke-width", 1)
+        .style("transition", "stroke-opacity 0.2s, stroke 0.2s")
+    : linkGroup.selectAll("line").data([]).join("line");
 
   // Nodes
   const node = g
@@ -139,9 +148,9 @@ export function renderGraph(
   const fontFamily = settings.fontFamily ?? "system-ui, -apple-system, sans-serif";
 
   if (style === "title") {
-    renderTitleNodes(node, data, dims, historyMap, colors, fontFamily);
+    renderTitleNodes(node, data, dims, historyMap, colors, fontFamily, fontSize);
   } else {
-    renderCircularNodes(node, data, dims, historyMap, colors);
+    renderCircularNodes(node, data, dims, historyMap, colors, showNodes, showTitles, fontSize);
   }
 
   // Accessibility: make nodes focusable
@@ -226,7 +235,10 @@ function renderCircularNodes(
   _data: GraphData,
   dims: Map<string, { w: number; h: number }>,
   historyMap: Map<string, number>,
-  colors: Record<string, string>
+  colors: Record<string, string>,
+  showNodes: boolean,
+  showTitles: boolean,
+  fontSize: number
 ) {
   const RING_LEVELS = [
     { strokeWidth: 6, opacity: 1.0 },
@@ -236,36 +248,43 @@ function renderCircularNodes(
     { strokeWidth: 4, opacity: 0.2 },
   ];
 
-  node
-    .append("circle")
-    .attr("r", (d) => (d.central ? 12 : 4 + Math.min(d.degree * 1.5, 10)))
-    .attr("fill", (d) => (d.central ? colors.nodeCentral : colors.nodeFill))
-    .attr("stroke", "none")
-    .attr("stroke-width", 0);
+  if (showNodes) {
+    node
+      .append("circle")
+      .attr("r", (d) => (d.central ? 12 : 4 + Math.min(d.degree * 1.5, 10)))
+      .attr("fill", (d) => (d.central ? colors.nodeCentral : colors.nodeFill))
+      .attr("stroke", "none")
+      .attr("stroke-width", 0);
 
-  // History rings
-  node
-    .filter((d) => historyMap.has(d.id.toLowerCase()))
-    .append("circle")
-    .attr("r", (d) => {
-      const baseR = d.central ? 12 : 4 + Math.min(d.degree * 1.5, 10);
-      const idx = historyMap.get(d.id.toLowerCase())!;
-      return baseR + RING_LEVELS[idx].strokeWidth / 2 + 2;
-    })
-    .attr("fill", "none")
-    .attr("stroke", RING_COLOR)
-    .attr("stroke-width", (d) => RING_LEVELS[historyMap.get(d.id.toLowerCase())!].strokeWidth)
-    .attr("stroke-opacity", (d) => RING_LEVELS[historyMap.get(d.id.toLowerCase())!].opacity);
+    // History rings
+    node
+      .filter((d) => historyMap.has(d.id.toLowerCase()))
+      .append("circle")
+      .attr("r", (d) => {
+        const baseR = d.central ? 12 : 4 + Math.min(d.degree * 1.5, 10);
+        const idx = historyMap.get(d.id.toLowerCase())!;
+        return baseR + RING_LEVELS[idx].strokeWidth / 2 + 2;
+      })
+      .attr("fill", "none")
+      .attr("stroke", RING_COLOR)
+      .attr("stroke-width", (d) => RING_LEVELS[historyMap.get(d.id.toLowerCase())!].strokeWidth)
+      .attr("stroke-opacity", (d) => RING_LEVELS[historyMap.get(d.id.toLowerCase())!].opacity);
+  }
 
-  // Labels offset to the right
-  node
-    .append("text")
-    .text((d) => d.name)
-    .attr("x", (d) => (d.central ? 16 : 10))
-    .attr("y", 4)
-    .attr("font-size", (d) => (d.central ? "14px" : "11px"))
-    .attr("font-weight", (d) => (d.central ? "bold" : "normal"))
-    .attr("fill", colors.textNormal);
+  if (showTitles) {
+    // Labels centered on the node
+    node
+      .append("text")
+      .text((d) => d.name)
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "central")
+      .attr("font-size", (d) => (d.central ? `${fontSize + 2}px` : `${fontSize}px`))
+      .attr("font-weight", (d) => (d.central ? "bold" : "normal"))
+      .attr("fill", colors.textNormal);
+  } else {
+    // Tooltip only (native SVG title element)
+    node.append("title").text((d) => d.name);
+  }
 
   // Store dims for collision (approximate)
   node.each((d) => {
@@ -281,7 +300,8 @@ function renderTitleNodes(
   dims: Map<string, { w: number; h: number }>,
   historyMap: Map<string, number>,
   colors: Record<string, string>,
-  fontFamily: string
+  fontFamily: string,
+  fontSize: number
 ) {
   // History color: nodes in history get orange tint, fading with recency
   const historyColor = (d: GraphNode): string | null => {
@@ -291,11 +311,22 @@ function renderTitleNodes(
     return `rgba(239, 122, 28, ${opacities[idx]})`;
   };
 
+  // Font size range based on user's fontSize setting
+  const fMin = fontSize;
+  const fMax = fontSize + 8;
+
+  function scaledTitleFontSize(d: GraphNode): number {
+    if (d.central) return fMax;
+    const count = d.blockCount ?? BLOCKS_MIN;
+    const t = Math.min(1, Math.max(0, (count - BLOCKS_MIN) / (BLOCKS_MAX - BLOCKS_MIN)));
+    return fMin + (fMax - fMin) * Math.sqrt(t);
+  }
+
   // Text labels — the only visible element per node
   const textEls = node
     .append("text")
     .text((d) => d.name)
-    .attr("font-size", (d) => `${titleFontSize(d)}px`)
+    .attr("font-size", (d) => `${scaledTitleFontSize(d)}px`)
     .attr("font-weight", (d) => (d.central ? "bold" : "normal"))
     .attr("font-family", fontFamily)
     .attr("text-anchor", "middle")

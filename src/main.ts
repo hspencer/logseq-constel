@@ -4,7 +4,7 @@ import { renderGraph } from "./render";
 import { renderGraph3D, cleanupGraph3D } from "./render3d";
 import { applyQuery } from "./query";
 import CSS from "./styles";
-import type { GraphData } from "./types";
+import type { GraphData, ViewMode } from "./types";
 
 interface State {
   active: boolean;
@@ -12,9 +12,17 @@ interface State {
   query: Record<string, any>;
   graphData: GraphData | null;
   history: string[];
-  activeFilters: Map<string, string>; // property key:value toggles
   dark: boolean;
   splitPct: number;
+  // Visualization controls
+  viewMode: ViewMode;
+  showEdges: boolean;
+  showNodes: boolean;
+  showTitles: boolean;
+  fontSize: number;
+  graphDepth: number;
+  repulsionForce: number;
+  controlsExpanded: boolean;
 }
 
 const state: State = {
@@ -23,9 +31,16 @@ const state: State = {
   query: {},
   graphData: null,
   history: [],
-  activeFilters: new Map(),
   dark: false,
   splitPct: 50,
+  viewMode: "titles",
+  showEdges: true,
+  showNodes: true,
+  showTitles: true,
+  fontSize: 12,
+  graphDepth: 2,
+  repulsionForce: -100,
+  controlsExpanded: false,
 };
 
 function createModel() {
@@ -38,39 +53,7 @@ function createModel() {
 }
 
 function main() {
-  logseq.useSettingsSchema([
-    {
-      key: "graphDepth",
-      type: "number",
-      default: 2,
-      title: "Graph depth (degrees of separation)",
-      description:
-        "1 = direct connections only, 2 = connections of connections, etc.",
-    },
-    {
-      key: "chargeStrength",
-      type: "number",
-      default: -200,
-      title: "Repulsion force",
-      description: "More negative = more spread out.",
-    },
-    {
-      key: "linkDistance",
-      type: "number",
-      default: 80,
-      title: "Link distance (px)",
-      description: "Ideal distance between connected nodes.",
-    },
-    {
-      key: "nodeStyle",
-      type: "enum",
-      default: "title",
-      title: "Node style",
-      description: "title: text sized by page length. circular: dots with labels. 3d: 3D space with orbital camera.",
-      enumChoices: ["title", "circular", "3d"],
-      enumPicker: "radio",
-    },
-  ]);
+  currentLang = detectLang();
 
   // Inject styles into the plugin iframe
   const styleEl = document.createElement("style");
@@ -122,11 +105,6 @@ function main() {
       if (root) root.className = state.dark ? "dark" : "";
       refreshGraph();
     }
-  });
-
-  // Refresh graph when settings change (e.g. node style)
-  logseq.onSettingsChanged(() => {
-    if (state.active) refreshGraph();
   });
 
   // When right sidebar opens while Constel is active, deactivate Constel
@@ -182,27 +160,45 @@ function main() {
   console.log("[constel] ready");
 }
 
-/** Inject layout CSS into LogSeq's parent document via official API.
- *  Uses :has() so styles auto-activate/deactivate with .visible class. */
+/** Inject layout CSS into LogSeq's parent document.
+ *  Direct DOM injection with explicit cleanup — no :has() needed. */
 function provideLayoutStyle(pct: number) {
-  const sel = "#logseq-constel_lsp_main.visible";
-  logseq.provideStyle(`
-    body:has(${sel}) #main-content-container {
-      margin-left: ${pct}vw !important;
-      width: ${100 - pct}vw !important;
+  removeLayoutStyle();
+  try {
+    const styleEl = parent.document.createElement("style");
+    styleEl.id = "constel-layout-style";
+    styleEl.textContent = `
+      #main-content-container {
+        margin-left: ${pct}vw !important;
+        width: ${100 - pct}vw !important;
+      }
+      #main-content-container .cp__sidebar-main-content {
+        max-width: 100% !important;
+        padding-left: 24px !important;
+        padding-right: 24px !important;
+      }
+      #main-content-container .page,
+      #main-content-container .ls-page-title,
+      #main-content-container .editor-inner {
+        max-width: 100% !important;
+      }
+    `;
+    parent.document.head.appendChild(styleEl);
+  } catch (e) {
+    console.warn("[constel] cannot inject layout style:", e);
+  }
+}
+
+function removeLayoutStyle() {
+  try {
+    const el = parent.document.getElementById("constel-layout-style");
+    if (el) {
+      el.remove();
+      console.log("[constel] layout style removed");
     }
-    body:has(${sel}) #main-content-container .cp__sidebar-main-content {
-      max-width: 100% !important;
-      padding-left: 24px !important;
-      padding-right: 24px !important;
-    }
-    body:has(${sel}) #main-content-container #main-content-container,
-    body:has(${sel}) #main-content-container .page,
-    body:has(${sel}) #main-content-container .ls-page-title,
-    body:has(${sel}) #main-content-container .editor-inner {
-      max-width: 100% !important;
-    }
-  `);
+  } catch (e) {
+    console.warn("[constel] cannot access parent document:", e);
+  }
 }
 
 async function activate() {
@@ -259,7 +255,7 @@ async function activate() {
   app.innerHTML = `
     <div id="constel-root" class="${state.dark ? "dark" : ""}">
       <div id="constel-panel">
-        <div id="constel-props"></div>
+        <div id="constel-controls"></div>
         <div id="constel-history"></div>
         <div id="constel-graph"></div>
       </div>
@@ -299,10 +295,12 @@ function deactivate() {
   state.graphData = null;
   state.query = {};
   state.history = [];
-  state.activeFilters.clear();
   state.dark = false;
 
-  // Reset container styles — layout CSS auto-deactivates via :has(.visible)
+  // Remove layout style from parent document
+  removeLayoutStyle();
+
+  // Reset container styles
   logseq.setMainUIInlineStyle({
     position: "",
     top: "",
@@ -332,12 +330,9 @@ async function navigateTo(pageName: string) {
   if (state.history.length > 20) state.history.shift();
   renderHistory();
 
-  const depth = (logseq.settings?.graphDepth as number) ?? 2;
-  state.graphData = await buildGraph(pageName, depth);
+  state.graphData = await buildGraph(pageName, state.graphDepth);
 
-  // Update property switches for the central node
-  renderProps();
-
+  renderControls();
   refreshGraph();
 }
 
@@ -360,78 +355,229 @@ function renderHistory() {
   container.scrollLeft = container.scrollWidth;
 }
 
-function renderProps() {
-  const container = document.getElementById("constel-props");
+// ── i18n ──
+type Lang = "es" | "en";
+let currentLang: Lang = "es";
+
+const i18n: Record<string, Record<Lang, string>> = {
+  view:         { es: "Vista",        en: "View" },
+  titles:       { es: "Títulos",      en: "Titles" },
+  nodes2d:      { es: "Nodos 2D",     en: "Nodes 2D" },
+  nodes3d:      { es: "Nodos 3D",     en: "Nodes 3D" },
+  depth:        { es: "Profundidad",  en: "Depth" },
+  repulsion:    { es: "Repulsión",    en: "Repulsion" },
+  center:       { es: "Centrar",      en: "Center" },
+  zoomIn:       { es: "Acercar",      en: "Zoom in" },
+  zoomOut:      { es: "Alejar",       en: "Zoom out" },
+  edges:        { es: "Aristas",      en: "Edges" },
+  nodes:        { es: "Nodos",        en: "Nodes" },
+  titleLabels:  { es: "Títulos",      en: "Titles" },
+  fontSize:     { es: "Texto",        en: "Text" },
+  close:        { es: "Cerrar (Esc)", en: "Close (Esc)" },
+  showControls: { es: "Mostrar controles", en: "Show controls" },
+  hideControls: { es: "Ocultar controles", en: "Hide controls" },
+  decDepth:     { es: "Reducir profundidad",       en: "Decrease depth" },
+  incDepth:     { es: "Aumentar profundidad",      en: "Increase depth" },
+  decFont:      { es: "Reducir tamaño de fuente",  en: "Decrease font size" },
+  incFont:      { es: "Aumentar tamaño de fuente", en: "Increase font size" },
+  viewMode:     { es: "Modo de visualización",     en: "View mode" },
+  repLabel:     { es: "Fuerza de repulsión",       en: "Repulsion force" },
+  degSep:       { es: "Grados de separación",      en: "Degrees of separation" },
+  closeLabel:   { es: "Cerrar Con§tel",            en: "Close Con§tel" },
+  graphLabel:   { es: "Visualización de grafo",    en: "Knowledge graph visualization" },
+};
+
+function t(key: string): string {
+  return i18n[key]?.[currentLang] ?? key;
+}
+
+function detectLang(): Lang {
+  try {
+    const lang = navigator.language?.toLowerCase() ?? "";
+    if (lang.startsWith("es")) return "es";
+  } catch (_) {}
+  return "en";
+}
+
+// ── Feather-style SVG icons (inline, no library) ──
+const ICON_CROSSHAIR = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>`;
+const ICON_ZOOM_IN = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`;
+const ICON_ZOOM_OUT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`;
+
+function createSwitch(label: string, checked: boolean, onChange: (val: boolean) => void): HTMLElement {
+  const sw = document.createElement("label");
+  sw.className = "constel-switch" + (checked ? " active" : "");
+  sw.setAttribute("role", "switch");
+  sw.setAttribute("aria-checked", String(checked));
+  sw.setAttribute("tabindex", "0");
+  sw.innerHTML = `
+    <span class="constel-switch-label">${escapeHtml(label)}</span>
+    <span class="constel-switch-toggle"><span class="constel-switch-knob"></span></span>
+  `;
+  const toggle = () => {
+    const next = !sw.classList.contains("active");
+    sw.classList.toggle("active", next);
+    sw.setAttribute("aria-checked", String(next));
+    onChange(next);
+  };
+  sw.addEventListener("click", toggle);
+  sw.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+  });
+  return sw;
+}
+
+function renderControls() {
+  const container = document.getElementById("constel-controls");
   if (!container) return;
   container.innerHTML = "";
 
-  if (!state.graphData) return;
-
-  const centralNode = state.graphData.nodes.find((n) => n.central);
-  if (!centralNode?.properties) return;
-
-  for (const [key, val] of Object.entries(centralNode.properties)) {
-    if (key === "id") continue;
-    const valStr = String(val);
-    const filterKey = `${key}:${valStr}`;
-    const isActive = state.activeFilters.has(filterKey);
-
-    const sw = document.createElement("label");
-    sw.className = "constel-switch" + (isActive ? " active" : "");
-    sw.setAttribute("role", "switch");
-    sw.setAttribute("aria-checked", String(isActive));
-    sw.setAttribute("tabindex", "0");
-    sw.innerHTML = `
-      <span class="constel-switch-key">${escapeHtml(key)}</span>
-      <span class="constel-switch-val">${escapeHtml(valStr)}</span>
-      <span class="constel-switch-toggle">
-        <span class="constel-switch-knob"></span>
-      </span>
-    `;
-    const toggleFilter = () => {
-      if (state.activeFilters.has(filterKey)) {
-        state.activeFilters.delete(filterKey);
-      } else {
-        state.activeFilters.set(filterKey, filterKey);
-      }
-      renderProps();
-      refreshGraph();
-    };
-    sw.addEventListener("click", toggleFilter);
-    sw.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        toggleFilter();
-      }
-    });
-    container.appendChild(sw);
+  // ── Row 1: Mode + chevron + close ──
+  const modeRow = document.createElement("div");
+  modeRow.className = "constel-ctrl-row";
+  const modeLabel = document.createElement("label");
+  modeLabel.className = "constel-ctrl-label";
+  modeLabel.textContent = t("view");
+  const modeSelect = document.createElement("select");
+  modeSelect.className = "constel-select";
+  modeSelect.setAttribute("aria-label", t("viewMode"));
+  for (const [val, key] of [["titles","titles"],["nodes2d","nodes2d"],["nodes3d","nodes3d"]] as const) {
+    const o = document.createElement("option");
+    o.value = val; o.textContent = t(key);
+    if (state.viewMode === val) o.selected = true;
+    modeSelect.appendChild(o);
   }
+  modeSelect.addEventListener("change", () => { state.viewMode = modeSelect.value as ViewMode; renderControls(); refreshGraph(); });
+
+  const chevDown = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+  const chevUp = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>`;
+  const chevBtn = document.createElement("button");
+  chevBtn.className = "constel-btn-icon constel-btn-close";
+  chevBtn.innerHTML = state.controlsExpanded ? chevUp : chevDown;
+  chevBtn.title = t(state.controlsExpanded ? "hideControls" : "showControls");
+  chevBtn.setAttribute("aria-label", t(state.controlsExpanded ? "hideControls" : "showControls"));
+  chevBtn.setAttribute("aria-expanded", String(state.controlsExpanded));
+  chevBtn.addEventListener("click", () => { state.controlsExpanded = !state.controlsExpanded; renderControls(); });
+
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "constel-btn-icon";
+  closeBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+  closeBtn.title = t("close");
+  closeBtn.setAttribute("aria-label", t("closeLabel"));
+  closeBtn.addEventListener("click", deactivate);
+
+  modeRow.append(modeLabel, modeSelect, chevBtn, closeBtn);
+  container.appendChild(modeRow);
+
+  if (!state.controlsExpanded) return;
+
+  // ── Row 2: Depth + Repulsion ──
+  const genRow = document.createElement("div");
+  genRow.className = "constel-ctrl-row";
+
+  const depthWrap = document.createElement("div");
+  depthWrap.className = "constel-ctrl-field constel-ctrl-field--inline";
+  const depthLbl = document.createElement("label");
+  depthLbl.className = "constel-ctrl-label";
+  depthLbl.textContent = t("depth");
+  const dStepper = document.createElement("div");
+  dStepper.className = "constel-stepper";
+  const dMinus = document.createElement("button");
+  dMinus.className = "constel-stepper-btn"; dMinus.textContent = "\u2212"; dMinus.setAttribute("aria-label", t("decDepth"));
+  const dVal = document.createElement("span");
+  dVal.className = "constel-stepper-value"; dVal.textContent = String(state.graphDepth);
+  const dPlus = document.createElement("button");
+  dPlus.className = "constel-stepper-btn"; dPlus.textContent = "+"; dPlus.setAttribute("aria-label", t("incDepth"));
+  dStepper.append(dMinus, dVal, dPlus);
+  const updDepth = async (v: number) => {
+    const c = Math.max(1, Math.min(2, v));
+    if (c === state.graphDepth) return;
+    state.graphDepth = c;
+    dVal.textContent = String(c);
+    dMinus.disabled = true; dPlus.disabled = true;
+    const graphEl = document.getElementById("constel-graph");
+    graphEl?.classList.add("constel-loading");
+    if (state.currentPage) {
+      state.graphData = await buildGraph(state.currentPage, c);
+      refreshGraph();
+    }
+    graphEl?.classList.remove("constel-loading");
+    dMinus.disabled = c <= 1; dPlus.disabled = c >= 2;
+  };
+  dMinus.disabled = state.graphDepth <= 1; dPlus.disabled = state.graphDepth >= 2;
+  dMinus.addEventListener("click", () => updDepth(state.graphDepth - 1));
+  dPlus.addEventListener("click", () => updDepth(state.graphDepth + 1));
+  depthWrap.append(depthLbl, dStepper);
+
+  const repWrap = document.createElement("div");
+  repWrap.className = "constel-ctrl-field";
+  repWrap.innerHTML = `<label class="constel-ctrl-label">${t("repulsion")} <span class="constel-ctrl-value">${state.repulsionForce}</span></label>`;
+  const repSlider = document.createElement("input");
+  repSlider.type = "range"; repSlider.className = "constel-range";
+  repSlider.min = "-200"; repSlider.max = "0"; repSlider.step = "10"; repSlider.value = String(state.repulsionForce);
+  repSlider.setAttribute("aria-label", t("repLabel"));
+  repSlider.addEventListener("input", () => { state.repulsionForce = Number(repSlider.value); repWrap.querySelector(".constel-ctrl-value")!.textContent = String(state.repulsionForce); refreshGraph(); });
+  repWrap.appendChild(repSlider);
+  genRow.append(depthWrap, repWrap);
+
+  // ── Row 3: Zoom + toggles + font (single row) ──
+  const mixRow = document.createElement("div");
+  mixRow.className = "constel-ctrl-row";
+
+  const btnC = document.createElement("button"); btnC.className = "constel-btn-icon"; btnC.innerHTML = ICON_CROSSHAIR; btnC.title = t("center"); btnC.setAttribute("aria-label", t("center")); btnC.addEventListener("click", () => document.dispatchEvent(new CustomEvent("constel:center")));
+  const btnZI = document.createElement("button"); btnZI.className = "constel-btn-icon"; btnZI.innerHTML = ICON_ZOOM_IN; btnZI.title = t("zoomIn"); btnZI.setAttribute("aria-label", t("zoomIn")); btnZI.addEventListener("click", () => document.dispatchEvent(new CustomEvent("constel:zoom", { detail: "in" })));
+  const btnZO = document.createElement("button"); btnZO.className = "constel-btn-icon"; btnZO.innerHTML = ICON_ZOOM_OUT; btnZO.title = t("zoomOut"); btnZO.setAttribute("aria-label", t("zoomOut")); btnZO.addEventListener("click", () => document.dispatchEvent(new CustomEvent("constel:zoom", { detail: "out" })));
+  mixRow.append(btnC, btnZI, btnZO);
+
+  const sep = document.createElement("span"); sep.className = "constel-ctrl-sep"; mixRow.appendChild(sep);
+
+  mixRow.appendChild(createSwitch(t("edges"), state.showEdges, (v) => { state.showEdges = v; refreshGraph(); }));
+  if (state.viewMode === "nodes2d" || state.viewMode === "nodes3d") {
+    mixRow.appendChild(createSwitch(t("nodes"), state.showNodes, (v) => { state.showNodes = v; refreshGraph(); }));
+    mixRow.appendChild(createSwitch(t("titleLabels"), state.showTitles, (v) => { state.showTitles = v; refreshGraph(); }));
+  }
+
+  // Font stepper
+  const fWrap = document.createElement("div"); fWrap.className = "constel-ctrl-field constel-ctrl-field--inline";
+  const fLbl = document.createElement("label"); fLbl.className = "constel-ctrl-label"; fLbl.textContent = t("fontSize");
+  const fStepper = document.createElement("div"); fStepper.className = "constel-stepper";
+  const fMinus = document.createElement("button"); fMinus.className = "constel-stepper-btn"; fMinus.textContent = "\u2212"; fMinus.setAttribute("aria-label", t("decFont"));
+  const fVal = document.createElement("span"); fVal.className = "constel-stepper-value"; fVal.textContent = String(state.fontSize);
+  const fPlus = document.createElement("button"); fPlus.className = "constel-stepper-btn"; fPlus.textContent = "+"; fPlus.setAttribute("aria-label", t("incFont"));
+  fStepper.append(fMinus, fVal, fPlus);
+  const updFont = (v: number) => { const c = Math.max(8, Math.min(24, v)); if (c === state.fontSize) return; state.fontSize = c; fVal.textContent = String(c); fMinus.disabled = c <= 8; fPlus.disabled = c >= 24; refreshGraph(); };
+  fMinus.disabled = state.fontSize <= 8; fPlus.disabled = state.fontSize >= 24;
+  fMinus.addEventListener("click", () => updFont(state.fontSize - 1));
+  fPlus.addEventListener("click", () => updFont(state.fontSize + 1));
+  fWrap.append(fLbl, fStepper); mixRow.appendChild(fWrap);
+
+  container.append(genRow, mixRow);
 }
 
 function refreshGraph() {
   if (!state.graphData || !state.currentPage) return;
 
   const cloned: GraphData = JSON.parse(JSON.stringify(state.graphData));
+  const filtered = applyQuery(cloned, state.query);
 
-  // Merge text query with active property filters
-  const query = { ...state.query };
-  if (state.activeFilters.size > 0) {
-    const props: Record<string, string> = { ...(query.properties || {}) };
-    for (const filterKey of state.activeFilters.keys()) {
-      const [key, ...rest] = filterKey.split(":");
-      props[key] = rest.join(":");
-    }
-    query.properties = props;
-  }
+  // Map viewMode to render nodeStyle
+  const nodeStyleMap: Record<string, string> = {
+    titles: "title",
+    nodes2d: "circular",
+    nodes3d: "3d",
+  };
+  const nodeStyle = nodeStyleMap[state.viewMode] ?? "circular";
 
-  const filtered = applyQuery(cloned, query);
-  const nodeStyle = (logseq.settings?.nodeStyle as string) ?? "circular";
   const settings = {
-    chargeStrength: (logseq.settings?.chargeStrength as number) ?? -200,
-    linkDistance: (logseq.settings?.linkDistance as number) ?? 80,
+    chargeStrength: state.repulsionForce,
+    linkDistance: 80,
     history: state.history,
     dark: state.dark,
     nodeStyle: nodeStyle as "circular" | "title",
+    showEdges: state.showEdges,
+    showNodes: state.showNodes,
+    showTitles: state.showTitles,
+    fontSize: state.fontSize,
   };
 
   const container = document.getElementById("constel-graph");
@@ -441,7 +587,7 @@ function refreshGraph() {
     await navigateTo(clickedPage);
   };
 
-  if (nodeStyle === "3d") {
+  if (state.viewMode === "nodes3d") {
     renderGraph3D(container, filtered, onClickNode, settings);
   } else {
     cleanupGraph3D();

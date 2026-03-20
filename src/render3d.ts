@@ -5,10 +5,17 @@ import type { RenderSettings } from "./render";
 
 const RING_COLOR = "#ef7a1c";
 
-// Store active graph instance for cleanup
+// Store active graph instance and event listeners for cleanup
 let activeGraph: any = null;
+let activeListeners: { event: string; fn: EventListener }[] = [];
 
 export function cleanupGraph3D() {
+  // Remove event listeners from previous render
+  for (const { event, fn } of activeListeners) {
+    document.removeEventListener(event, fn);
+  }
+  activeListeners = [];
+
   if (activeGraph) {
     activeGraph._destructor?.();
     activeGraph = null;
@@ -94,17 +101,18 @@ export function renderGraph3D(
   function createNodeSprite(node: any): THREE.Group {
     const size = nodeSize(node);
     const color = nodeColor(node);
-    const fontSize = node.central ? 56 : 40;
+    const baseFontSize = settings.fontSize ?? 12;
+    const spriteFontSize = node.central ? baseFontSize * 4.5 : baseFontSize * 3.3;
     const textColor = node.central ? colors.nodeCentral : colors.text;
 
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d")!;
     const dpr = 2;
-    const text = node.name;
-    ctx.font = `${node.central ? "bold " : ""}${fontSize * dpr}px system-ui, -apple-system, sans-serif`;
+    const text = showTitles ? node.name : "";
+    ctx.font = `${node.central ? "bold " : ""}${spriteFontSize * dpr}px system-ui, -apple-system, sans-serif`;
     const textMetrics = ctx.measureText(text);
-    const textWidth = textMetrics.width;
-    const textHeight = fontSize * dpr * 1.4;
+    const textWidth = showTitles ? textMetrics.width : 0;
+    const textHeight = spriteFontSize * dpr * 1.4;
     const circleRadius = size * dpr * 12;
     const padding = 8 * dpr;
 
@@ -118,21 +126,44 @@ export function renderGraph3D(
     const cy = totalHeight / 2;
 
     // Re-set font after resize
-    ctx.font = `${node.central ? "bold " : ""}${fontSize * dpr}px system-ui, -apple-system, sans-serif`;
+    ctx.font = `${node.central ? "bold " : ""}${spriteFontSize * dpr}px system-ui, -apple-system, sans-serif`;
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
 
-    // Draw circle centered behind text (30% opacity)
-    ctx.globalAlpha = 0.3;
-    ctx.beginPath();
-    ctx.arc(cx, cy, circleRadius, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
+    // Draw circle behind text if nodes visible
+    if (showNodes) {
+      ctx.globalAlpha = 0.6;
+      ctx.beginPath();
+      ctx.arc(cx, cy, circleRadius, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
 
-    // Draw text centered on top (100% opacity)
-    ctx.globalAlpha = 1.0;
-    ctx.fillStyle = textColor;
-    ctx.fillText(text, cx, cy);
+    // Draw text with opaque background pill for legibility
+    if (showTitles) {
+      const tm = ctx.measureText(text);
+      const pillH = spriteFontSize * dpr * 1.2;
+      const pillW = tm.width + 12 * dpr;
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = dark ? "rgba(30,30,30,0.9)" : "rgba(255,255,255,0.9)";
+      const rx = cx - pillW / 2, ry = cy - pillH / 2, rr = pillH / 2;
+      ctx.beginPath();
+      ctx.moveTo(rx + rr, ry);
+      ctx.lineTo(rx + pillW - rr, ry);
+      ctx.quadraticCurveTo(rx + pillW, ry, rx + pillW, ry + rr);
+      ctx.lineTo(rx + pillW, ry + pillH - rr);
+      ctx.quadraticCurveTo(rx + pillW, ry + pillH, rx + pillW - rr, ry + pillH);
+      ctx.lineTo(rx + rr, ry + pillH);
+      ctx.quadraticCurveTo(rx, ry + pillH, rx, ry + pillH - rr);
+      ctx.lineTo(rx, ry + rr);
+      ctx.quadraticCurveTo(rx, ry, rx + rr, ry);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.globalAlpha = 1.0;
+      ctx.fillStyle = textColor;
+      ctx.fillText(text, cx, cy);
+    }
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
@@ -140,6 +171,7 @@ export function renderGraph3D(
       map: texture,
       transparent: true,
       depthWrite: false,
+      opacity: 1.0,
     });
     const sprite = new THREE.Sprite(spriteMaterial);
 
@@ -152,6 +184,10 @@ export function renderGraph3D(
     return group;
   }
 
+  const showEdges = settings.showEdges ?? true;
+  const showNodes = settings.showNodes ?? true;
+  const showTitles = settings.showTitles ?? true;
+
   const graph = ForceGraph3D()(container)
     .width(width)
     .height(height)
@@ -159,9 +195,9 @@ export function renderGraph3D(
     .graphData({ nodes: nodes3d, links: links3d })
     .nodeThreeObject((node: any) => createNodeSprite(node))
     .nodeThreeObjectExtend(false)
-    .linkColor(() => colors.linkStroke)
-    .linkOpacity(0.4)
-    .linkWidth(0.5)
+    .linkColor(() => showEdges ? colors.linkStroke : "rgba(0,0,0,0)")
+    .linkOpacity(showEdges ? 0.4 : 0)
+    .linkWidth(showEdges ? 0.5 : 0)
     .onNodeClick((node: any) => {
       if (node?.name) onClickPage(node.name);
     })
@@ -178,41 +214,25 @@ export function renderGraph3D(
 
   activeGraph = graph;
 
-  // Zoom controls
-  const controls = document.createElement("div");
-  controls.className = "constel-zoom-controls";
-
-  const btnPlus = document.createElement("button");
-  btnPlus.textContent = "+";
-  btnPlus.title = "Zoom in";
-  btnPlus.setAttribute("aria-label", "Zoom in");
-
-  const btnMinus = document.createElement("button");
-  btnMinus.textContent = "\u2212";
-  btnMinus.title = "Zoom out";
-  btnMinus.setAttribute("aria-label", "Zoom out");
-
-  const btnFit = document.createElement("button");
-  btnFit.textContent = "\u2300";
-  btnFit.title = "Fit to view";
-  btnFit.setAttribute("aria-label", "Fit to view");
-
-  controls.append(btnPlus, btnMinus, btnFit);
-  container.appendChild(controls);
-
-  btnPlus.addEventListener("click", () => {
+  // Listen for external zoom/center events from controls toolbar
+  const onZoom = ((e: CustomEvent) => {
     const camera = graph.camera();
     const dist = camera.position.length();
-    camera.position.setLength(dist * 0.67);
-  });
-
-  btnMinus.addEventListener("click", () => {
-    const camera = graph.camera();
-    const dist = camera.position.length();
-    camera.position.setLength(dist * 1.5);
-  });
-
-  btnFit.addEventListener("click", () => {
-    graph.zoomToFit(400, 60);
-  });
+    camera.position.setLength(e.detail === "in" ? dist * 0.67 : dist * 1.5);
+  }) as EventListener;
+  const onCenter = (() => {
+    // Reset camera to look at origin, then fit all nodes
+    graph.cameraPosition(
+      { x: 0, y: 0, z: 200 },  // camera position
+      { x: 0, y: 0, z: 0 },    // look-at
+      600                        // transition ms
+    );
+    setTimeout(() => graph.zoomToFit(400, 40), 650);
+  }) as EventListener;
+  document.addEventListener("constel:zoom", onZoom);
+  document.addEventListener("constel:center", onCenter);
+  activeListeners = [
+    { event: "constel:zoom", fn: onZoom },
+    { event: "constel:center", fn: onCenter },
+  ];
 }

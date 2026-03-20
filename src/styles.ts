@@ -91,51 +91,219 @@ export default `
     background: var(--accent);
   }
 
-  /* Property switches — top bar, left padding avoids LogSeq system buttons */
-  #constel-props {
+  /* ── Controls panel ── */
+  #constel-controls {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
     padding: 8px 12px;
     background: var(--bg-surface-alt);
+    border-bottom: 1px solid var(--border);
     position: relative;
     z-index: 5;
+    align-items: center;
   }
 
-  #constel-props:empty {
-    display: none;
+  .constel-ctrl-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    width: 100%;
   }
 
+  .constel-ctrl-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    user-select: none;
+  }
+
+  .constel-ctrl-value {
+    color: var(--text);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .constel-ctrl-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 80px;
+  }
+
+  .constel-ctrl-field--inline {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    min-width: 100px;
+  }
+
+  .constel-ctrl-field--inline .constel-range {
+    flex: 1;
+  }
+
+  .constel-ctrl-buttons {
+    gap: 4px;
+    width: auto;
+  }
+
+  .constel-btn-close {
+    margin-left: auto;
+  }
+
+  .constel-ctrl-sep {
+    width: 1px;
+    height: 16px;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+
+  /* Number stepper (+/- buttons) */
+  .constel-stepper {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--input-bg);
+  }
+
+  .constel-stepper-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .constel-stepper-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--accent);
+  }
+
+  .constel-stepper-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  .constel-stepper-value {
+    min-width: 20px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+  }
+
+  /* Dropdown */
+  .constel-select {
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg);
+    color: var(--text);
+    cursor: pointer;
+    outline: none;
+  }
+
+  .constel-select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
+
+  /* Range sliders */
+  .constel-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--switch-off);
+    outline: none;
+    cursor: pointer;
+  }
+
+  .constel-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg);
+    cursor: pointer;
+    box-shadow: 0 1px 3px var(--shadow);
+  }
+
+  .constel-range::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg);
+    cursor: pointer;
+    box-shadow: 0 1px 3px var(--shadow);
+  }
+
+  .constel-range:focus {
+    outline: 2px solid var(--accent-glow);
+    outline-offset: 2px;
+  }
+
+  /* Icon buttons */
+  .constel-btn-icon {
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    background: var(--input-bg);
+    color: var(--text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .constel-btn-icon:hover {
+    border-color: var(--accent);
+    background: var(--bg-hover);
+    color: var(--accent);
+  }
+
+  .constel-btn-icon:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  /* Toggle switches */
   .constel-switch {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     font-size: 12px;
-    border-radius: 6px;
-    border: 1px solid var(--input-border);
-    padding: 3px 8px;
     cursor: pointer;
     user-select: none;
-    transition: all 0.15s;
-    background: var(--input-bg);
   }
 
-  .constel-switch:hover {
-    border-color: var(--accent);
-  }
-
-  .constel-switch.active {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-  }
-
-  .constel-switch-key {
+  .constel-switch-label {
     color: var(--text-muted);
+    font-size: 11px;
   }
 
-  .constel-switch-val {
+  .constel-switch.active .constel-switch-label {
     color: var(--text);
-    font-weight: 500;
   }
 
   .constel-switch-toggle {
@@ -216,37 +384,25 @@ export default `
     position: relative;
   }
 
-  /* Zoom controls */
-  .constel-zoom-controls {
+  /* Loading indicator (non-blocking) */
+  #constel-graph.constel-loading::after {
+    content: "";
     position: absolute;
-    bottom: 12px;
-    left: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    top: 8px;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin-left: -10px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: constel-spin 0.6s linear infinite;
     z-index: 10;
+    pointer-events: none;
   }
 
-  .constel-zoom-controls button {
-    width: 28px;
-    height: 28px;
-    border: 1px solid var(--input-border, #ddd);
-    border-radius: 6px;
-    background: var(--bg-surface, #f8f8f8);
-    color: var(--text, #333);
-    font-size: 16px;
-    line-height: 1;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.15s, border-color 0.15s;
-    padding: 0;
-  }
-
-  .constel-zoom-controls button:hover {
-    border-color: var(--accent, #045591);
-    background: var(--bg-hover, #f0f0f0);
+  @keyframes constel-spin {
+    to { transform: rotate(360deg); }
   }
 
   /* Focus ring for keyboard-navigable SVG nodes */
