@@ -429,4 +429,34 @@ export default `
   #constel-history::-webkit-scrollbar {
     display: none;
   }
+
+  /* ── Mermaid styling ── */
+  .constel-mermaid {
+    margin: 16px 0;
+    display: flex;
+    justify-content: center;
+    background: var(--bg-surface);
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    overflow-x: auto;
+  }
+
+  .constel-mermaid svg {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+
+  .constel-mermaid-error {
+    margin: 16px 0;
+    padding: 12px;
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    border-left: 4px solid #ef4444;
+    font-family: monospace;
+    font-size: 13px;
+    white-space: pre-wrap;
+    border-radius: 0 8px 8px 0;
+    overflow-x: auto;
+  }
 `;

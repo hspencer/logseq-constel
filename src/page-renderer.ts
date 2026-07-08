@@ -1,3 +1,5 @@
+import mermaid from "mermaid";
+
 /**
  * Renders a LogSeq page's block tree into HTML for the right panel.
  */
@@ -46,6 +48,9 @@ export async function renderPage(
     empty.textContent = "Empty page";
     container.appendChild(empty);
   }
+
+  // Render Mermaid diagrams asynchronously
+  await renderMermaidDiagrams(container);
 }
 
 function renderBlockTree(
@@ -110,7 +115,15 @@ function formatBlockContent(content: string): string {
     return "";
   }
 
-  let html = escapeHtml(content);
+  // Pre-process: Extract Mermaid blocks before markdown formatting
+  const mermaidBlocks: string[] = [];
+  const processedContent = content.replace(/```mermaid\s*([\s\S]*?)\s*```/g, (match, code) => {
+    const index = mermaidBlocks.length;
+    mermaidBlocks.push(code);
+    return `__MERMAID_BLOCK_${index}__`;
+  });
+
+  let html = escapeHtml(processedContent);
 
   // Headings (## ... → <h2>, ### ... → <h3>, etc.)
   const headingMatch = html.match(/^(#{1,6})\s+(.+)$/);
@@ -144,7 +157,42 @@ function formatBlockContent(content: string): string {
     '<span class="constel-marker constel-done">DONE</span> '
   );
 
+  // Post-process: Replace placeholders with Mermaid container elements
+  html = html.replace(/__MERMAID_BLOCK_(\d+)__/g, (match, indexStr) => {
+    const index = parseInt(indexStr, 10);
+    const code = mermaidBlocks[index];
+    return `<div class="constel-mermaid" data-code="${encodeURIComponent(code)}"></div>`;
+  });
+
   return html;
+}
+
+async function renderMermaidDiagrams(container: HTMLElement) {
+  const els = container.querySelectorAll(".constel-mermaid");
+  if (els.length === 0) return;
+
+  const isDark = document.getElementById("constel-root")?.classList.contains("dark") || false;
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: isDark ? "dark" : "default",
+  });
+
+  for (let i = 0; i < els.length; i++) {
+    const el = els[i] as HTMLElement;
+    const code = decodeURIComponent(el.dataset.code || "");
+    if (!code) continue;
+
+    const id = `mermaid-${Math.random().toString(36).substring(2, 9)}-${i}`;
+    try {
+      const { svg } = await mermaid.render(id, code);
+      el.innerHTML = svg;
+    } catch (err) {
+      console.error("Failed to render Mermaid diagram:", err);
+      el.innerHTML = `<pre class="constel-mermaid-error">${escapeHtml(code)}</pre>`;
+      const badSvg = document.getElementById(id);
+      if (badSvg) badSvg.remove();
+    }
+  }
 }
 
 function escapeHtml(str: string): string {

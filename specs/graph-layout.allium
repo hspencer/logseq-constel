@@ -1,0 +1,196 @@
+-- allium: 3
+-- graph-layout.allium
+
+-- Scope: Force-directed graph visualization parameters
+-- Includes: Node sizing, edge distance, charge/repulsion forces
+-- Excludes:
+--   - Graph data fetching from Logseq API
+--   - DOM rendering / SVG / WebGL details
+--   - Color theming, text layout, history rings
+--   - Drag interaction, zoom, pan
+
+------------------------------------------------------------
+-- External Entities
+------------------------------------------------------------
+
+external entity Page {
+    name: String
+    block_count: Integer
+}
+
+------------------------------------------------------------
+-- Value Types
+------------------------------------------------------------
+
+value SizeRange {
+    min: Decimal
+    max: Decimal
+}
+
+------------------------------------------------------------
+-- Enumerations
+------------------------------------------------------------
+
+enum ViewMode { titles | nodes_2d | nodes_3d }
+
+------------------------------------------------------------
+-- Entities
+------------------------------------------------------------
+
+entity GraphNode {
+    page: Page
+    central: Boolean
+    degree: Integer                    -- number of connections to other nodes
+    block_count: Integer               -- number of content blocks in the page
+
+    -- Derived
+    radius_2d: Decimal                 -- visual radius in 2D modes
+    size_3d: Decimal                   -- visual size in 3D mode
+}
+
+entity GraphEdge {
+    source: GraphNode
+    target: GraphNode
+}
+
+------------------------------------------------------------
+-- Config
+------------------------------------------------------------
+
+config {
+    -- 2D node sizing
+    central_radius_2d: 12              -- fixed radius for the focal node
+    base_radius_2d: 4                  -- minimum radius for non-central nodes
+    degree_scale_2d: 1.5               -- radius growth per connection
+    max_degree_bonus_2d: 10            -- cap on degree-based radius addition
+
+    -- 3D node sizing
+    central_size_3d: 10                -- fixed size for the focal node
+    size_range_3d: SizeRange = SizeRange(min: 2, max: 8)
+    block_count_range: SizeRange = SizeRange(min: 1, max: 100)
+
+    -- Edge distance
+    link_distance_titles: 120          -- rest length between connected nodes in title mode
+    link_distance_circular: 80         -- rest length in circular/3D mode
+
+    -- Repulsion
+    charge_titles: -400                -- repulsion strength in title mode
+    charge_circular: -200              -- repulsion strength in circular mode
+    repulsion_force: -100              -- user-adjustable repulsion (range: -200 to 0)
+}
+
+------------------------------------------------------------
+-- Rules
+------------------------------------------------------------
+
+-- ── Node sizing ──
+
+-- In 2D modes, node radius scales with degree (number of connections).
+-- The central node is fixed-size to anchor the layout visually.
+rule ComputeNodeRadius2D {
+    when: ComputeLayout(node, view_mode)
+    requires: view_mode = titles or view_mode = nodes_2d
+
+    ensures:
+        if node.central:
+            node.radius_2d = central_radius_2d
+        else:
+            node.radius_2d = base_radius_2d + min(node.degree * degree_scale_2d, max_degree_bonus_2d)
+
+    @guidance
+        -- Degree-based sizing communicates connectivity at a glance:
+        -- highly connected pages appear larger, drawing the eye to hubs.
+        -- The cap prevents outlier nodes from dominating the layout.
+}
+
+-- In 3D mode, node size scales with block count (content volume)
+-- using a square-root curve to compress the range.
+rule ComputeNodeSize3D {
+    when: ComputeLayout(node, view_mode)
+    requires: view_mode = nodes_3d
+
+    ensures:
+        if node.central:
+            node.size_3d = central_size_3d
+        else:
+            let t = clamp((node.block_count - block_count_range.min) / (block_count_range.max - block_count_range.min), 0, 1)
+            node.size_3d = size_range_3d.min + (size_range_3d.max - size_range_3d.min) * sqrt(t)
+
+    @guidance
+        -- 3D uses block_count (content volume) rather than degree because
+        -- spatial depth already communicates connectivity via clustering.
+        -- Square-root scaling ensures small pages remain visible while
+        -- large pages don't overwhelm the scene.
+}
+
+-- ── Edge distance ──
+
+-- Edge rest length determines how far apart connected nodes settle.
+-- Title mode needs more breathing room for readable labels.
+rule DetermineEdgeDistance {
+    when: ComputeLayout(edge, view_mode)
+
+    ensures:
+        if view_mode = titles:
+            edge.rest_length = link_distance_titles
+        else:
+            edge.rest_length = link_distance_circular
+
+    @guidance
+        -- Title mode renders full page names as multi-line labels,
+        -- requiring longer edges to prevent overlap.
+        -- Circular/3D modes use compact dot nodes so edges can be shorter,
+        -- producing a tighter, more navigable cluster.
+}
+
+-- ── Repulsion (charge strength) ──
+
+-- Charge strength controls how strongly all nodes repel each other.
+-- More negative = stronger repulsion = more spread out graph.
+-- The user adjusts this via the "Repulsion" slider.
+rule DetermineChargeStrength {
+    when: ComputeLayout(view_mode)
+
+    ensures:
+        charge_strength = repulsion_force
+
+    @guidance
+        -- Default repulsion differs by mode when no user override exists:
+        --   titles: -400 (labels need space)
+        --   circular/3D: -200 (dots cluster tighter)
+        -- The user slider overrides these defaults (range: -200 to 0).
+        -- At 0, only edge springs hold the graph together.
+        -- At -200, maximum repulsion spreads nodes across the viewport.
+}
+
+------------------------------------------------------------
+-- Invariants
+------------------------------------------------------------
+
+invariant NodeSizesPositive {
+    for node in GraphNodes:
+        node.radius_2d > 0 and node.size_3d > 0
+}
+
+invariant CentralNodeLargest {
+    -- The central (focal) node is always the largest in the layout,
+    -- anchoring the user's sense of "where am I?"
+    for node in GraphNodes:
+        if node.central:
+            node.radius_2d >= 12
+            node.size_3d >= 10
+}
+
+------------------------------------------------------------
+-- Open Questions
+------------------------------------------------------------
+
+-- Q1: Should edge distance also scale with node degree or content
+--     size, so hub nodes have more breathing room automatically?
+
+-- Q2: The 2D/3D sizing strategies differ (degree vs block_count).
+--     Should both dimensions be available in both modes, perhaps
+--     as a user toggle?
+
+-- Q3: Link distance is currently fixed per mode. Should it be
+--     user-adjustable like repulsion force?
