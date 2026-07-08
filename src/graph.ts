@@ -88,6 +88,7 @@ export async function buildGraph(
         // Collect unique refs first, then batch-check existence
         const refs = new Set<string>();
         for (const block of flattenBlocks(blocks)) {
+          if (!block || !block.content) continue;
           let match: RegExpExecArray | null;
           while ((match = refPattern.exec(block.content)) !== null) {
             refs.add(match[1]);
@@ -140,7 +141,9 @@ export async function buildGraph(
 
 function flattenBlocks(blocks: any[]): any[] {
   const result: any[] = [];
+  if (!blocks || !Array.isArray(blocks)) return result;
   for (const block of blocks) {
+    if (!block) continue;
     result.push(block);
     if (block.children?.length) {
       result.push(...flattenBlocks(block.children));

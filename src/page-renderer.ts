@@ -63,6 +63,7 @@ function renderBlockTree(
   if (depth > 0) ul.classList.add("constel-blocks-nested");
 
   for (const block of blocks) {
+    if (!block) continue;
     const formatted = formatBlockContent(block.content || "");
     // Skip empty blocks (e.g. property-only lines)
     if (!formatted && (!block.children?.length)) continue;
@@ -73,6 +74,23 @@ function renderBlockTree(
     const content = document.createElement("div");
     content.className = "constel-block-content";
     content.innerHTML = formatted;
+
+    if (block.uuid) {
+      content.dataset.uuid = block.uuid;
+      // Click block to edit natively on the right panel
+      content.addEventListener("click", async (e) => {
+        const targetEl = e.target as HTMLElement;
+        if (targetEl.closest("a.constel-page-link") || targetEl.closest(".constel-mermaid")) {
+          return;
+        }
+        e.stopPropagation();
+        try {
+          await logseq.Editor.editBlock(block.uuid);
+        } catch (err) {
+          console.warn("[constel] failed to edit block:", err);
+        }
+      });
+    }
 
     // Add data attributes for linked pages (for edge-click scrolling)
     const linkedPages = [...(block.content || "").matchAll(/\[\[([^\]]+)\]\]/g)].map(m => m[1]);

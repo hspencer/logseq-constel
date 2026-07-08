@@ -3,6 +3,7 @@ import { buildGraph } from "./graph";
 import { renderGraph } from "./render";
 import { renderGraph3D, cleanupGraph3D } from "./render3d";
 import { applyQuery } from "./query";
+import mermaid from "mermaid";
 import CSS from "./styles";
 import type { GraphData, ViewMode } from "./types";
 
@@ -42,6 +43,138 @@ const state: State = {
   repulsionForce: -100,
   controlsExpanded: false,
 };
+
+let editorObserver: MutationObserver | null = null;
+
+function findMermaidBlocks() {
+  const parentDoc = parent.document;
+  const wrappers = parentDoc.querySelectorAll(".code-wrapper, .extensions-code, pre");
+  const blocks: { wrapper: HTMLElement; code: string; blockEl: HTMLElement }[] = [];
+
+  wrappers.forEach((wrapper) => {
+    const langEl = wrapper.querySelector(".code-lang, .language, .code-editor-header, .lang-label");
+    const isMermaidLabel = langEl && langEl.textContent?.trim().toLowerCase() === "mermaid";
+    const hasMermaidClass = wrapper.classList.contains("language-mermaid") || wrapper.querySelector(".language-mermaid") !== null;
+
+    if (isMermaidLabel || hasMermaidClass) {
+      const blockEl = wrapper.closest(".ls-block") as HTMLElement;
+      if (!blockEl) return;
+
+      let code = "";
+      const cmEl = wrapper.querySelector(".CodeMirror") as any;
+      if (cmEl && cmEl.CodeMirror) {
+        code = cmEl.CodeMirror.getValue();
+      } else {
+        const lines = Array.from(wrapper.querySelectorAll(".CodeMirror-line, pre code, code"));
+        if (lines.length > 0) {
+          code = lines.map(el => el.textContent || "").join("\n");
+        } else {
+          code = wrapper.textContent || "";
+        }
+      }
+
+      // Clean up markup from raw text fallback
+      code = code.replace(/^```mermaid\s*/i, "").replace(/\s*```$/, "");
+
+      blocks.push({
+        wrapper: wrapper as HTMLElement,
+        code: code.trim(),
+        blockEl
+      });
+    }
+  });
+
+  return blocks;
+}
+
+async function renderEditorMermaid() {
+  if (!state.active) return;
+  const blocks = findMermaidBlocks();
+  const parentDoc = parent.document;
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: state.dark ? "dark" : "default",
+  });
+
+  blocks.forEach(async ({ wrapper, code, blockEl }) => {
+    const isEditing = blockEl.classList.contains("editing") || blockEl.classList.contains("selected");
+
+    let container = wrapper.nextSibling as HTMLElement;
+    if (!container || !container.classList.contains("constel-editor-mermaid")) {
+      container = parentDoc.createElement("div");
+      container.className = "constel-editor-mermaid";
+      container.style.cssText = "margin: 16px 0; display: flex; justify-content: center; background: var(--bg-surface, #f8f8f8); padding: 16px; border-radius: 8px; border: 1px solid var(--border, #e0e0e0); overflow-x: auto; cursor: pointer;";
+      wrapper.parentNode?.insertBefore(container, wrapper.nextSibling);
+    }
+
+    if (isEditing) {
+      wrapper.style.display = "";
+      container.style.display = "none";
+    } else {
+      wrapper.style.display = "none";
+      container.style.display = "";
+
+      if (container.dataset.code !== code) {
+        container.dataset.code = code;
+        const id = `mermaid-editor-${Math.random().toString(36).substring(2, 9)}`;
+        try {
+          const { svg } = await mermaid.render(id, code);
+          container.innerHTML = svg;
+        } catch (err) {
+          console.error("[constel] editor mermaid render error:", err);
+          container.innerHTML = `<pre style="margin:0; padding: 12px; background: rgba(239, 68, 68, 0.1); color: #ef4444; border-left: 4px solid #ef4444; font-family: monospace; font-size: 13px; white-space: pre-wrap; border-radius: 8px; overflow-x: auto;">${escapeHtml(code)}</pre>`;
+          const badSvg = parentDoc.getElementById(id);
+          if (badSvg) badSvg.remove();
+        }
+      }
+    }
+  });
+
+  // Clean up orphans
+  parentDoc.querySelectorAll(".constel-editor-mermaid").forEach((container) => {
+    const prev = container.previousSibling as HTMLElement;
+    if (!prev || (!prev.classList.contains("code-wrapper") && !prev.classList.contains("extensions-code") && prev.tagName !== "PRE")) {
+      container.remove();
+    }
+  });
+}
+
+function setupEditorObserver() {
+  if (editorObserver) {
+    editorObserver.disconnect();
+  }
+
+  const parentDoc = parent.document;
+  const target = parentDoc.querySelector("#main-content-container") || parentDoc.body;
+  if (!target) return;
+
+  editorObserver = new MutationObserver(() => {
+    renderEditorMermaid();
+  });
+
+  editorObserver.observe(target, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["class"]
+  });
+
+  renderEditorMermaid();
+}
+
+function cleanupEditorObserver() {
+  if (editorObserver) {
+    editorObserver.disconnect();
+    editorObserver = null;
+  }
+  const parentDoc = parent.document;
+  parentDoc.querySelectorAll(".constel-editor-mermaid").forEach((container) => {
+    const prev = container.previousSibling as HTMLElement;
+    if (prev) prev.style.display = "";
+    container.remove();
+  });
+}
 
 function createModel() {
   return {
@@ -104,6 +237,7 @@ function main() {
       const root = document.getElementById("constel-root");
       if (root) root.className = state.dark ? "dark" : "";
       refreshGraph();
+      renderEditorMermaid();
     }
   });
 
@@ -270,12 +404,15 @@ async function activate() {
   // Push LogSeq main content to the right
   provideLayoutStyle(state.splitPct);
 
+  setupEditorObserver();
+
   await navigateTo(pageName);
 }
 
 function deactivate() {
   console.log("[constel] deactivating");
   cleanupGraph3D();
+  cleanupEditorObserver();
   state.active = false;
   state.currentPage = null;
   state.graphData = null;
@@ -303,22 +440,26 @@ function deactivate() {
 }
 
 async function navigateTo(pageName: string) {
-  state.currentPage = pageName;
+  try {
+    state.currentPage = pageName;
 
-  // Navigate LogSeq's native editor to this page
-  await logseq.App.pushState("page", { name: pageName });
+    // Navigate LogSeq's native editor to this page
+    await logseq.App.pushState("page", { name: pageName });
 
-  // Track history (no duplicates, move to end if revisited)
-  const idx = state.history.indexOf(pageName);
-  if (idx !== -1) state.history.splice(idx, 1);
-  state.history.push(pageName);
-  if (state.history.length > 20) state.history.shift();
-  renderHistory();
+    // Track history (no duplicates, move to end if revisited)
+    const idx = state.history.indexOf(pageName);
+    if (idx !== -1) state.history.splice(idx, 1);
+    state.history.push(pageName);
+    if (state.history.length > 20) state.history.shift();
+    renderHistory();
 
-  state.graphData = await buildGraph(pageName, state.graphDepth);
+    state.graphData = await buildGraph(pageName, state.graphDepth);
 
-  renderControls();
-  refreshGraph();
+    renderControls();
+    refreshGraph();
+  } catch (err) {
+    console.error("[constel] navigateTo error:", err);
+  }
 }
 
 function renderHistory() {

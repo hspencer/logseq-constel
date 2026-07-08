@@ -459,4 +459,5 @@ export default `
     border-radius: 0 8px 8px 0;
     overflow-x: auto;
   }
+
 `;
