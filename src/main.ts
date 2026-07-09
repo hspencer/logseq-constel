@@ -48,43 +48,13 @@ let editorObserver: MutationObserver | null = null;
 
 function findMermaidBlocks() {
   const parentDoc = parent.document;
-
-  console.log("[constel-debug] --- findMermaidBlocks scan start ---");
-  try {
-    const allCM = parentDoc.querySelectorAll(".CodeMirror");
-    console.log("[constel-debug] Total .CodeMirror found:", allCM.length);
-    allCM.forEach((el, i) => {
-      const cmEl = el as any;
-      console.log(`[constel-debug] CM[${i}]: class="${el.className}" tag="${el.tagName}" hasCodeMirror=${!!cmEl.CodeMirror}`);
-      if (cmEl.CodeMirror) {
-        console.log(`[constel-debug] CM[${i}] content:`, cmEl.CodeMirror.getValue().substring(0, 60));
-      }
-    });
-
-    const allPre = parentDoc.querySelectorAll("pre");
-    console.log("[constel-debug] Total pre found:", allPre.length);
-    allPre.forEach((el, i) => {
-      console.log(`[constel-debug] Pre[${i}]: class="${el.className}" text="${el.textContent?.substring(0, 60).replace(/\n/g, "\\n")}"`);
-    });
-
-    // Check parent wrappers
-    const wrappers = parentDoc.querySelectorAll(".code-wrapper, .extensions-code, pre, .block-editor");
-    console.log("[constel-debug] Total candidate wrappers found (.code-wrapper, .extensions-code, pre, .block-editor):", wrappers.length);
-  } catch (err) {
-    console.error("[constel-debug] Error during debug DOM scan:", err);
-  }
-
   const wrappers = parentDoc.querySelectorAll(".code-wrapper, .extensions-code, pre, .block-editor");
   const blocks: { wrapper: HTMLElement; code: string; blockEl: HTMLElement }[] = [];
-
-  console.log("[constel] findMermaidBlocks - wrappers found:", wrappers.length);
 
   wrappers.forEach((wrapper) => {
     const langEl = wrapper.querySelector(".code-lang, .language, .code-editor-header, .lang-label");
     const isMermaidLabel = langEl && langEl.textContent?.trim().toLowerCase() === "mermaid";
     const hasMermaidClass = wrapper.classList.contains("language-mermaid") || wrapper.querySelector(".language-mermaid") !== null;
-
-    console.log("[constel] wrapper:", wrapper.className, wrapper.tagName, "langEl:", langEl ? `${langEl.className} (${langEl.textContent?.trim()})` : "none", "isMermaidLabel:", isMermaidLabel, "hasMermaidClass:", hasMermaidClass);
 
     if (isMermaidLabel || hasMermaidClass) {
       const blockEl = wrapper.closest(".ls-block") as HTMLElement;
@@ -509,14 +479,33 @@ function renderHistory() {
   if (!container) return;
   container.innerHTML = "";
   for (const name of state.history) {
-    const pill = document.createElement("button");
+    const pill = document.createElement("span");
     pill.className = "constel-pill";
     if (name === state.currentPage) {
       pill.classList.add("active");
       pill.setAttribute("aria-current", "page");
     }
-    pill.textContent = name;
-    pill.addEventListener("click", () => navigateTo(name));
+
+    const textEl = document.createElement("span");
+    textEl.className = "constel-pill-text";
+    textEl.textContent = name;
+    textEl.addEventListener("click", () => navigateTo(name));
+
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "constel-pill-close";
+    closeBtn.textContent = "×";
+    closeBtn.title = currentLang === "es" ? "Eliminar del historial" : "Remove from history";
+    closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const idx = state.history.indexOf(name);
+      if (idx !== -1) {
+        state.history.splice(idx, 1);
+        renderHistory();
+        refreshGraph();
+      }
+    });
+
+    pill.append(textEl, closeBtn);
     container.appendChild(pill);
   }
   // Scroll to end

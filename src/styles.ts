@@ -354,19 +354,53 @@ export default `
   }
 
   .constel-pill {
-    padding: 2px 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 6px 2px 10px;
     border-radius: 12px;
     font-size: 12px;
     border: 1px solid var(--input-border);
     background: var(--input-bg);
-    cursor: pointer;
     white-space: nowrap;
     color: var(--text-secondary);
     transition: all 0.15s;
   }
 
-  .constel-pill:hover {
-    border-color: var(--accent);
+  .constel-pill-text {
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .constel-pill-text:hover {
+    color: var(--accent);
+  }
+
+  .constel-pill.active .constel-pill-text:hover {
+    color: #fff;
+    text-decoration: underline;
+  }
+
+  .constel-pill-close {
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    transition: all 0.15s;
+  }
+
+  .constel-pill-close:hover {
+    background: var(--bg-hover);
     color: var(--accent);
   }
 
@@ -374,6 +408,15 @@ export default `
     background: var(--accent);
     color: #fff;
     border-color: var(--accent);
+  }
+
+  .constel-pill.active .constel-pill-close {
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .constel-pill.active .constel-pill-close:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
   }
 
   /* Graph area */

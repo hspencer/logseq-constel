@@ -10,7 +10,13 @@ export async function buildGraph(
   pageName: string,
   maxDepth = 2
 ): Promise<GraphData | null> {
-  const page = await logseq.Editor.getPage(pageName);
+  let page: any = null;
+  try {
+    page = await logseq.Editor.getPage(pageName);
+  } catch (err) {
+    console.error("[constel] error getting page", pageName, err);
+    return null;
+  }
   if (!page) return null;
 
   const nodeMap = new Map<string, GraphNode>();
@@ -44,8 +50,13 @@ export async function buildGraph(
   }
 
   // Central node (with properties and block count)
-  const centralBlocks = await logseq.Editor.getPageBlocksTree(pageName);
-  const centralBlockCount = centralBlocks ? flattenBlocks(centralBlocks).length : 0;
+  let centralBlockCount = 0;
+  try {
+    const centralBlocks = await logseq.Editor.getPageBlocksTree(pageName);
+    centralBlockCount = centralBlocks ? flattenBlocks(centralBlocks).length : 0;
+  } catch (err) {
+    console.error("[constel] error getting central blocks tree for", pageName, err);
+  }
   addNode(pageName, true, page.properties as Record<string, any> | undefined, centralBlockCount, (page as any).originalName ?? pageName);
 
   // BFS expansion by depth
@@ -61,61 +72,76 @@ export async function buildGraph(
       const name = node.name;
 
       // Backlinks
-      const backlinks = await logseq.Editor.getPageLinkedReferences(name);
-      if (backlinks) {
-        for (const [refPage] of backlinks) {
-          if (refPage?.name) {
-            addNode(refPage.name, false, refPage.properties as Record<string, any> | undefined, undefined, (refPage as any).originalName ?? refPage.name);
-            addLink(name, refPage.name);
-            const refKey = refPage.name.toLowerCase();
-            if (!visited.has(refKey)) {
-              visited.add(refKey);
-              nextFrontier.add(refKey);
+      try {
+        const backlinks = await logseq.Editor.getPageLinkedReferences(name);
+        if (backlinks) {
+          for (const item of backlinks) {
+            if (item) {
+              const refPage = Array.isArray(item) ? item[0] : (item as any)[0];
+              if (refPage?.name) {
+                addNode(refPage.name, false, refPage.properties as Record<string, any> | undefined, undefined, (refPage as any).originalName ?? refPage.name);
+                addLink(name, refPage.name);
+                const refKey = refPage.name.toLowerCase();
+                if (!visited.has(refKey)) {
+                  visited.add(refKey);
+                  nextFrontier.add(refKey);
+                }
+              }
             }
           }
         }
+      } catch (err) {
+        console.error("[constel] error loading backlinks for", name, err);
       }
 
       // Forward links from block content (also count blocks for size)
-      const blocks = await logseq.Editor.getPageBlocksTree(name);
-      if (blocks) {
-        const allBlocks = flattenBlocks(blocks);
-        const currentNode = nodeMap.get(nodeKey);
-        if (currentNode && currentNode.blockCount === undefined) {
-          currentNode.blockCount = allBlocks.length;
-        }
-        const refPattern = /\[\[([^\]]+)\]\]/g;
-        // Collect unique refs first, then batch-check existence
-        const refs = new Set<string>();
-        for (const block of flattenBlocks(blocks)) {
-          if (!block || !block.content) continue;
-          let match: RegExpExecArray | null;
-          while ((match = refPattern.exec(block.content)) !== null) {
-            refs.add(match[1]);
+      try {
+        const blocks = await logseq.Editor.getPageBlocksTree(name);
+        if (blocks) {
+          const allBlocks = flattenBlocks(blocks);
+          const currentNode = nodeMap.get(nodeKey);
+          if (currentNode && currentNode.blockCount === undefined) {
+            currentNode.blockCount = allBlocks.length;
           }
-        }
-        // Check each ref page exists before adding
-        for (const refName of refs) {
-          const refKey = refName.toLowerCase();
-          // Skip if already in graph (already verified)
-          if (nodeMap.has(refKey)) {
-            addLink(name, refName);
-            if (!visited.has(refKey)) {
-              visited.add(refKey);
-              nextFrontier.add(refKey);
+          const refPattern = /\[\[([^\]]+)\]\]/g;
+          // Collect unique refs first, then batch-check existence
+          const refs = new Set<string>();
+          for (const block of allBlocks) {
+            if (!block || !block.content) continue;
+            let match: RegExpExecArray | null;
+            while ((match = refPattern.exec(block.content)) !== null) {
+              refs.add(match[1]);
             }
-            continue;
           }
-          // Verify page exists
-          const refPage = await logseq.Editor.getPage(refName);
-          if (!refPage) continue; // skip non-existent pages
-          addNode(refPage.name, false, refPage.properties as Record<string, any> | undefined, undefined, (refPage as any).originalName ?? refPage.name);
-          addLink(name, refPage.name);
-          if (!visited.has(refKey)) {
-            visited.add(refKey);
-            nextFrontier.add(refKey);
+          // Check each ref page exists before adding
+          for (const refName of refs) {
+            const refKey = refName.toLowerCase();
+            // Skip if already in graph (already verified)
+            if (nodeMap.has(refKey)) {
+              addLink(name, refName);
+              if (!visited.has(refKey)) {
+                visited.add(refKey);
+                nextFrontier.add(refKey);
+              }
+              continue;
+            }
+            // Verify page exists
+            try {
+              const refPage = await logseq.Editor.getPage(refName);
+              if (!refPage) continue; // skip non-existent pages
+              addNode(refPage.name, false, refPage.properties as Record<string, any> | undefined, undefined, (refPage as any).originalName ?? refPage.name);
+              addLink(name, refPage.name);
+              if (!visited.has(refKey)) {
+                visited.add(refKey);
+                nextFrontier.add(refKey);
+              }
+            } catch (err) {
+              console.error("[constel] error loading ref page", refName, err);
+            }
           }
         }
+      } catch (err) {
+        console.error("[constel] error loading blocks for", name, err);
       }
     }
 
