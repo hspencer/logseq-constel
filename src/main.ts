@@ -48,17 +48,50 @@ let editorObserver: MutationObserver | null = null;
 
 function findMermaidBlocks() {
   const parentDoc = parent.document;
-  const wrappers = parentDoc.querySelectorAll(".code-wrapper, .extensions-code, pre");
+
+  console.log("[constel-debug] --- findMermaidBlocks scan start ---");
+  try {
+    const allCM = parentDoc.querySelectorAll(".CodeMirror");
+    console.log("[constel-debug] Total .CodeMirror found:", allCM.length);
+    allCM.forEach((el, i) => {
+      const cmEl = el as any;
+      console.log(`[constel-debug] CM[${i}]: class="${el.className}" tag="${el.tagName}" hasCodeMirror=${!!cmEl.CodeMirror}`);
+      if (cmEl.CodeMirror) {
+        console.log(`[constel-debug] CM[${i}] content:`, cmEl.CodeMirror.getValue().substring(0, 60));
+      }
+    });
+
+    const allPre = parentDoc.querySelectorAll("pre");
+    console.log("[constel-debug] Total pre found:", allPre.length);
+    allPre.forEach((el, i) => {
+      console.log(`[constel-debug] Pre[${i}]: class="${el.className}" text="${el.textContent?.substring(0, 60).replace(/\n/g, "\\n")}"`);
+    });
+
+    // Check parent wrappers
+    const wrappers = parentDoc.querySelectorAll(".code-wrapper, .extensions-code, pre, .block-editor");
+    console.log("[constel-debug] Total candidate wrappers found (.code-wrapper, .extensions-code, pre, .block-editor):", wrappers.length);
+  } catch (err) {
+    console.error("[constel-debug] Error during debug DOM scan:", err);
+  }
+
+  const wrappers = parentDoc.querySelectorAll(".code-wrapper, .extensions-code, pre, .block-editor");
   const blocks: { wrapper: HTMLElement; code: string; blockEl: HTMLElement }[] = [];
+
+  console.log("[constel] findMermaidBlocks - wrappers found:", wrappers.length);
 
   wrappers.forEach((wrapper) => {
     const langEl = wrapper.querySelector(".code-lang, .language, .code-editor-header, .lang-label");
     const isMermaidLabel = langEl && langEl.textContent?.trim().toLowerCase() === "mermaid";
     const hasMermaidClass = wrapper.classList.contains("language-mermaid") || wrapper.querySelector(".language-mermaid") !== null;
 
+    console.log("[constel] wrapper:", wrapper.className, wrapper.tagName, "langEl:", langEl ? `${langEl.className} (${langEl.textContent?.trim()})` : "none", "isMermaidLabel:", isMermaidLabel, "hasMermaidClass:", hasMermaidClass);
+
     if (isMermaidLabel || hasMermaidClass) {
       const blockEl = wrapper.closest(".ls-block") as HTMLElement;
-      if (!blockEl) return;
+      if (!blockEl) {
+        console.log("[constel] wrapper has no .ls-block ancestor");
+        return;
+      }
 
       let code = "";
       const cmEl = wrapper.querySelector(".CodeMirror") as any;
@@ -75,6 +108,8 @@ function findMermaidBlocks() {
 
       // Clean up markup from raw text fallback
       code = code.replace(/^```mermaid\s*/i, "").replace(/\s*```$/, "");
+
+      console.log("[constel] found mermaid code:", code.substring(0, 50) + "...");
 
       blocks.push({
         wrapper: wrapper as HTMLElement,
@@ -186,6 +221,13 @@ function createModel() {
 }
 
 function main() {
+  window.addEventListener("unhandledrejection", (event) => {
+    console.error("[constel] Unhandled promise rejection:", event.reason);
+  });
+  window.addEventListener("error", (event) => {
+    console.error("[constel] Global error caught:", event.error || event.message);
+  });
+
   currentLang = detectLang();
 
   // Inject styles into the plugin iframe
